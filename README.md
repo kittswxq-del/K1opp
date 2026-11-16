@@ -649,7 +649,7 @@ do
 		container.ChildAdded:Connect(hookWeapon)
 	end
 
-	hookContainer(lp:FindFirstChildOfClass("Backpack") or lp:WaitForChild("Backpack"))
+	task.spawn(function() hookContainer(lp:FindFirstChildOfClass("Backpack") or lp:WaitForChild("Backpack")) end)
 	lp.CharacterAdded:Connect(hookContainer)
 	if lp.Character then hookContainer(lp.Character) end
 
@@ -692,7 +692,7 @@ do
 	end
 
 	lp.CharacterAdded:Connect(hookJump)
-	if lp.Character then hookJump(lp.Character) end
+	if lp.Character then task.spawn(hookJump, lp.Character) end
 
 	addToggle(visTab, "Jump Circle", false, function(v) jumpCircleOn = v end)
 end
@@ -2023,7 +2023,7 @@ do
 		for _, c in ipairs(container:GetChildren()) do hookWeapon(c) end
 		container.ChildAdded:Connect(hookWeapon)
 	end
-	hookContainer(lp:FindFirstChildOfClass("Backpack") or lp:WaitForChild("Backpack"))
+	task.spawn(function() hookContainer(lp:FindFirstChildOfClass("Backpack") or lp:WaitForChild("Backpack")) end)
 	lp.CharacterAdded:Connect(hookContainer)
 	if lp.Character then hookContainer(lp.Character) end
 
