@@ -208,9 +208,104 @@ do
 	local function watch(char)
 		for _, c in ipairs(char:GetChildren()) do hook(c) end
 		char.ChildAdded:Connect(hook)
+		local function refresh()
+			local g, k = false, false
+			for _, c in ipairs(char:GetChildren()) do
+				if c:IsA("Tool") then
+					local n = c.Name:lower()
+					if n:find("gun", 1, true) or n:find("revolver", 1, true) then g = true end
+					if n:find("knife", 1, true) then k = true end
+				end
+			end
+			U.holdGun, U.holdKnife = g, k
+		end
+		char.ChildAdded:Connect(refresh)
+		char.ChildRemoved:Connect(refresh)
+		refresh()
 	end
 	if lp.Character then watch(lp.Character) end
 	lp.CharacterAdded:Connect(watch)
+end
+
+do
+	local remote = { list = {}, ok = false, tried = false }
+	U.remote = remote
+	U.silent = nil
+
+	function remote.add(prio, fn)
+		remote.list[#remote.list + 1] = { prio, fn }
+		table.sort(remote.list, function(a, b) return a[1] < b[1] end)
+	end
+
+	local BLOCKED = { "reload", "equip", "ammo", "sound", "anim", "cool", "ping", "check" }
+
+	function remote.isShotRemote(inst)
+		local lname = inst.Name:lower()
+		for _, w in ipairs(BLOCKED) do
+			if lname:find(w, 1, true) then return false end
+		end
+		local p = inst.Parent
+		while p and p ~= game do
+			if p.ClassName == "Tool" then
+				local n = p.Name:lower()
+				return n:find("gun", 1, true) ~= nil or n:find("revolver", 1, true) ~= nil
+			end
+			p = p.Parent
+		end
+		if not U.holdGun then return false end
+		return lname:find("shoot", 1, true) ~= nil or lname:find("gun", 1, true) ~= nil
+			or lname:find("beam", 1, true) ~= nil or lname:find("fire", 1, true) ~= nil
+	end
+
+	function remote.ensure()
+		if remote.tried then return remote.ok end
+		remote.tried = true
+		if not (hookmetamethod and getnamecallmethod) then return false end
+		remote.ok = pcall(function()
+			local old
+			local function handler(self, ...)
+				local method = getnamecallmethod()
+				if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
+					local cn = self.ClassName
+					if cn == "RemoteEvent" or cn == "RemoteFunction" then
+						local args = table.pack(...)
+						for _, e in ipairs(remote.list) do
+							local ok2, res = pcall(e[2], self, method, args)
+							if ok2 and type(res) == "table" then args = res end
+						end
+						if setnamecallmethod then setnamecallmethod(method) end
+						return old(self, table.unpack(args, 1, args.n))
+					end
+				end
+				return old(self, ...)
+			end
+			old = hookmetamethod(game, "__namecall", newcclosure and newcclosure(handler) or handler)
+		end)
+		return remote.ok
+	end
+
+	remote.add(1, function(self, method, args)
+		local sl = U.silent
+		if not sl or os.clock() > sl.untilT then return nil end
+		if not remote.isShotRemote(self) then return nil end
+		local hasVec = false
+		for i = 1, args.n do
+			if typeof(args[i]) == "Vector3" then hasVec = true end
+		end
+		local out = { n = args.n }
+		for i = 1, args.n do
+			local a = args[i]
+			local t = typeof(a)
+			if t == "Vector3" then
+				out[i] = sl.pos
+			elseif t == "CFrame" and not hasVec and (a.Position - sl.pos).Magnitude > 0.01 then
+				out[i] = CFrame.lookAt(a.Position, sl.pos)
+			else
+				out[i] = a
+			end
+		end
+		return out
+	end)
 end
 
 local ACCENT = Color3.fromRGB(190, 120, 255)
@@ -2198,11 +2293,13 @@ do
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
 		params.FilterDescendantsInstances = { lp.Character }
+		local found = false
 		for _, p in ipairs(Players:GetPlayers()) do
 			if p ~= lp and p.Character and U.hasTool(p, "knife") then
 				local hum = p.Character:FindFirstChildOfClass("Humanoid")
 				local head = p.Character:FindFirstChild("Head")
 				if hum and head and hum.Health > 0 then
+					found = true
 					if through then return head, p.Character end
 					local _, onScreen = cam:WorldToViewportPoint(head.Position)
 					if onScreen then
@@ -2213,7 +2310,7 @@ do
 				end
 			end
 		end
-		return nil
+		return nil, nil, found and "hidden" or "none"
 	end
 
 	function aim.openPath(from, to, targetChar)
@@ -2261,6 +2358,8 @@ do
 
 	function aim.fire(gun, head, tchar, pct, ignoreWalls)
 		local pos = aim.predict(head, tchar, pct)
+		U.remote.ensure()
+		U.silent = { pos = pos, untilT = os.clock() + 0.8 }
 		aim.aimAt(pos)
 		if ignoreWalls then
 			local handle = gun:FindFirstChild("Handle")
@@ -2312,9 +2411,12 @@ do
 			task.wait(0.25)
 			gun = aim.gunOf(char, hum)
 		end
-		if not gun then toast("No gun"); return end
-		local head, tchar = aim.findMurderer(sbWall)
-		if not head then toast("Murderer not found"); return end
+		if not gun then toast("You have no gun"); return end
+		local head, tchar, why = aim.findMurderer(sbWall)
+		if not head then
+			toast(why == "hidden" and "Murderer is not visible" or "No murderer found")
+			return
+		end
 		aim.fire(gun, head, tchar, sbPct, sbWall)
 	end
 
@@ -2335,6 +2437,58 @@ do
 			task.spawn(shootNow)
 		end
 	end)
+end
+
+do
+	local on, active = false, false
+	local changed = setmetatable({}, { __mode = "k" })
+	local conn = nil
+
+	local function isCharPart(inst)
+		local m = inst:FindFirstAncestorOfClass("Model")
+		return m ~= nil and Players:GetPlayerFromCharacter(m) ~= nil
+	end
+
+	local function strip(d)
+		if d:IsA("BasePart") and not d:IsA("Terrain") and d.CanQuery and not isCharPart(d) then
+			changed[d] = true
+			d.CanQuery = false
+		end
+	end
+
+	local function setActive(v)
+		if v == active then return end
+		active = v
+		if conn then conn:Disconnect(); conn = nil end
+		if v then
+			conn = workspace.DescendantAdded:Connect(function(d)
+				if active then strip(d) end
+			end)
+			task.spawn(function()
+				local n = 0
+				for _, d in ipairs(workspace:GetDescendants()) do
+					if not active then break end
+					strip(d)
+					n = n + 1
+					if n % 400 == 0 then task.wait() end
+				end
+			end)
+		else
+			for part in pairs(changed) do
+				pcall(function() part.CanQuery = true end)
+			end
+			changed = setmetatable({}, { __mode = "k" })
+		end
+	end
+
+	task.spawn(function()
+		while gui.Parent do
+			task.wait(0.2)
+			setActive(on and U.holdGun == true)
+		end
+	end)
+
+	addToggle(sheriffTab, "Wall Bang", false, function(v) on = v end)
 end
 
 do
@@ -2769,23 +2923,41 @@ end
 
 do
 	local on = false
-	addToggle(visTab, "Bullet Trace", false, function(v) on = v end)
-	U.activated[#U.activated + 1] = function(tool)
-		if not on then return end
+	local lastTrace = 0
+	local interval = 1
+	local lastSound = 0
+	local soundHooked = setmetatable({}, { __mode = "k" })
+
+	local function isGun(tool)
 		local n = tool.Name:lower()
-		if not (n:find("gun", 1, true) or n:find("revolver", 1, true)) then return end
+		return n:find("gun", 1, true) ~= nil or n:find("revolver", 1, true) ~= nil
+	end
+
+	local function currentGun()
+		local char = lp.Character
+		if not char then return nil end
+		for _, c in ipairs(char:GetChildren()) do
+			if c:IsA("Tool") and isGun(c) then return c end
+		end
+		return nil
+	end
+
+	local function drawTrace(target)
 		local char = lp.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if not root then return end
-		local handle = tool:FindFirstChild("Handle")
+		local gun = currentGun()
+		local handle = gun and gun:FindFirstChild("Handle")
 		local origin = handle and handle.Position or root.Position
-		local loc = UIS:GetMouseLocation()
-		local ray = cam:ViewportPointToRay(loc.X, loc.Y)
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Exclude
-		params.FilterDescendantsInstances = { char }
-		local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
-		local target = res and res.Position or (ray.Origin + ray.Direction * 1000)
+		if not target then
+			local loc = UIS:GetMouseLocation()
+			local ray = cam:ViewportPointToRay(loc.X, loc.Y)
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.FilterDescendantsInstances = { char }
+			local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+			target = res and res.Position or (ray.Origin + ray.Direction * 1000)
+		end
 		local dist = (target - origin).Magnitude
 		if dist < 0.5 then return end
 		local cf = CFrame.lookAt(origin, target) * CFrame.new(0, 0, -dist / 2)
@@ -2818,6 +2990,71 @@ do
 			for _, d in ipairs(parts) do d[1]:Destroy() end
 		end)
 	end
+
+	local function shot(target)
+		local now = os.clock()
+		if now - lastTrace < 0.12 then return end
+		lastTrace = now
+		drawTrace(target)
+	end
+
+	U.remote.add(2, function(self, method, args)
+		if not on then return nil end
+		if not U.remote.isShotRemote(self) then return nil end
+		local target
+		for i = 1, args.n do
+			if typeof(args[i]) == "Vector3" then target = args[i] end
+		end
+		task.spawn(shot, target)
+		return nil
+	end)
+
+	local function hookSound(d)
+		if d:IsA("Sound") and not soundHooked[d] then
+			soundHooked[d] = true
+			d.Played:Connect(function() lastSound = os.clock() end)
+		end
+	end
+
+	local function watchTool(tool)
+		if not (tool:IsA("Tool") and isGun(tool)) then return end
+		for _, d in ipairs(tool:GetDescendants()) do hookSound(d) end
+		tool.DescendantAdded:Connect(hookSound)
+	end
+
+	local function watchContainer(container)
+		if not container then return end
+		for _, c in ipairs(container:GetChildren()) do watchTool(c) end
+		container.ChildAdded:Connect(watchTool)
+	end
+
+	local function watchChar(char)
+		watchContainer(char)
+		watchContainer(lp:FindFirstChildOfClass("Backpack") or lp:WaitForChild("Backpack", 5))
+	end
+	task.spawn(function()
+		if lp.Character then watchChar(lp.Character) end
+		lp.CharacterAdded:Connect(watchChar)
+	end)
+
+	U.activated[#U.activated + 1] = function(tool)
+		if not on or U.remote.ok or not isGun(tool) then return end
+		local t0 = os.clock()
+		if tool:FindFirstChildWhichIsA("Sound", true) then
+			local deadline = t0 + 0.5
+			while os.clock() < deadline and lastSound < t0 do task.wait(0.03) end
+			if lastSound >= t0 then shot(nil) end
+		elseif t0 - lastTrace >= interval then
+			shot(nil)
+		end
+	end
+
+	local _, btRow = addToggle(visTab, "Bullet Trace", false, function(v)
+		on = v
+		if v then U.remote.ensure() end
+	end)
+	local btBox = addGroup(visTab, btRow)
+	addNumberRow(btBox, "Trace Cooldown (sec, fallback)", 1, function(n) interval = n end)
 end
 
 do
