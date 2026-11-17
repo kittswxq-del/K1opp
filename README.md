@@ -2008,6 +2008,244 @@ do
 end
 
 do
+	local on = false
+	local saved = setmetatable({}, { __mode = "k" })
+	local hooked = setmetatable({}, { __mode = "k" })
+	local conns = {}
+
+	local function isGunSound(snd)
+		if snd.Name == "VisionKillSound" then return false end
+		local tool = snd:FindFirstAncestorWhichIsA("Tool")
+		if tool then
+			local tn = tool.Name:lower()
+			if tn:find("gun", 1, true) or tn:find("revolver", 1, true) then return true end
+		end
+		local n = snd.Name:lower()
+		return n:find("gun", 1, true) ~= nil or n:find("shoot", 1, true) ~= nil
+	end
+
+	local function mute(snd)
+		if saved[snd] == nil then saved[snd] = snd.Volume end
+		snd.Volume = 0
+		if not hooked[snd] then
+			hooked[snd] = true
+			snd:GetPropertyChangedSignal("Volume"):Connect(function()
+				if on and snd.Volume ~= 0 then snd.Volume = 0 end
+			end)
+			snd.Played:Connect(function()
+				if on then snd.Volume = 0 end
+			end)
+		end
+	end
+
+	local function consider(inst)
+		if inst:IsA("Sound") and isGunSound(inst) then mute(inst) end
+	end
+
+	function U.muteGun(v)
+		on = v and true or false
+		for _, c in ipairs(conns) do c:Disconnect() end
+		conns = {}
+		if on then
+			conns[#conns + 1] = workspace.DescendantAdded:Connect(consider)
+			conns[#conns + 1] = lp.DescendantAdded:Connect(consider)
+			conns[#conns + 1] = game:GetService("SoundService").DescendantAdded:Connect(consider)
+			task.spawn(function()
+				pcall(function()
+					for _, d in ipairs(workspace:GetDescendants()) do consider(d) end
+					for _, d in ipairs(lp:GetDescendants()) do consider(d) end
+					for _, d in ipairs(game:GetService("SoundService"):GetDescendants()) do consider(d) end
+				end)
+			end)
+		else
+			for snd, vol in pairs(saved) do
+				pcall(function() snd.Volume = vol end)
+			end
+			saved = setmetatable({}, { __mode = "k" })
+		end
+	end
+end
+
+do
+	local mode = nil
+	local setLegit, setWall
+	local lastShot = 0
+	local freed = {}
+
+	local function isGun(tool)
+		local n = tool.Name:lower()
+		return n:find("gun", 1, true) ~= nil or n:find("revolver", 1, true) ~= nil
+	end
+
+	local function gunOf(char, hum)
+		for _, c in ipairs(char:GetChildren()) do
+			if c:IsA("Tool") and isGun(c) then return c end
+		end
+		local bp = lp:FindFirstChildOfClass("Backpack")
+		if bp then
+			for _, c in ipairs(bp:GetChildren()) do
+				if c:IsA("Tool") and isGun(c) then
+					pcall(function() hum:EquipTool(c) end)
+					return nil
+				end
+			end
+		end
+		return nil
+	end
+
+	local function findMurderer(through)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { lp.Character }
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= lp and p.Character and U.hasTool(p, "knife") then
+				local hum = p.Character:FindFirstChildOfClass("Humanoid")
+				local head = p.Character:FindFirstChild("Head")
+				if hum and head and hum.Health > 0 then
+					if through then return head, p.Character end
+					local _, onScreen = cam:WorldToViewportPoint(head.Position)
+					if onScreen then
+						local origin = cam.CFrame.Position
+						local res = workspace:Raycast(origin, (head.Position - origin) * 1.05, params)
+						if res and res.Instance:IsDescendantOf(p.Character) then return head, p.Character end
+					end
+				end
+			end
+		end
+		return nil
+	end
+
+	local function openPath(from, to, targetChar)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		local ignore = { lp.Character }
+		for _ = 1, 10 do
+			params.FilterDescendantsInstances = ignore
+			local res = workspace:Raycast(from, (to - from) * 1.05, params)
+			if not res or res.Instance:IsDescendantOf(targetChar) then break end
+			local inst = res.Instance
+			if inst.CanQuery then
+				inst.CanQuery = false
+				freed[#freed + 1] = inst
+			end
+			ignore[#ignore + 1] = inst
+		end
+	end
+
+	local function aimAt(head)
+		cam.CFrame = CFrame.lookAt(cam.CFrame.Position, head.Position)
+		if mousemoveabs then
+			local v = cam:WorldToScreenPoint(head.Position)
+			pcall(mousemoveabs, v.X, v.Y)
+		end
+	end
+
+	RunService.Heartbeat:Connect(function()
+		if not mode then return end
+		if os.clock() - lastShot < 0.3 then return end
+		local char = lp.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then return end
+		local gun = gunOf(char, hum)
+		if not gun then return end
+		local head, tchar = findMurderer(mode == "wall")
+		if not head then return end
+		lastShot = os.clock()
+		aimAt(head)
+		if mode == "wall" then
+			local origin = (gun:FindFirstChild("Handle") and gun.Handle.Position) or cam.CFrame.Position
+			openPath(cam.CFrame.Position, head.Position, tchar)
+			openPath(origin, head.Position, tchar)
+		end
+		pcall(function() gun:Activate() end)
+		task.delay(0.4, function()
+			for _, inst in ipairs(freed) do
+				pcall(function() inst.CanQuery = true end)
+			end
+			freed = {}
+		end)
+	end)
+
+	setLegit = addToggle(combatTab, "Aim Legit (Auto Shoot Murderer)", false, function(on)
+		if on then
+			mode = "legit"
+			if setWall then setWall(false) end
+		elseif mode == "legit" then mode = nil end
+	end)
+	setWall = addToggle(combatTab, "Aim Through Wall (Auto Shoot)", false, function(on)
+		if on then
+			mode = "wall"
+			if setLegit then setLegit(false) end
+		elseif mode == "wall" then mode = nil end
+	end)
+end
+
+do
+	local busy = false
+
+	local function knifeOf(char, hum)
+		for _, c in ipairs(char:GetChildren()) do
+			if c:IsA("Tool") and c.Name:lower():find("knife", 1, true) then return c end
+		end
+		local bp = lp:FindFirstChildOfClass("Backpack")
+		if bp then
+			for _, c in ipairs(bp:GetChildren()) do
+				if c:IsA("Tool") and c.Name:lower():find("knife", 1, true) then
+					pcall(function() hum:EquipTool(c) end)
+					task.wait(0.15)
+					if c.Parent == char then return c end
+				end
+			end
+		end
+		return nil
+	end
+
+	addNavRow(combatTab, "Kill All (Murderer)", "⚔", function()
+		if busy then return end
+		local char = lp.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not hum or not root or hum.Health <= 0 then toast("No character"); return end
+		busy = true
+		task.spawn(function()
+			local knife = knifeOf(char, hum)
+			if not knife then toast("You need the Knife"); busy = false; return end
+			local targets = {}
+			for _, p in ipairs(Players:GetPlayers()) do
+				local c = p ~= lp and p.Character
+				local th = c and c:FindFirstChildOfClass("Humanoid")
+				local tr = c and c:FindFirstChild("HumanoidRootPart")
+				if th and tr and th.Health > 0 then targets[#targets + 1] = { th, tr } end
+			end
+			if #targets == 0 then toast("No targets"); busy = false; return end
+			local origin = root.CFrame
+			local step = math.clamp(1 / #targets, 0.05, 0.2)
+			local handle = knife:FindFirstChild("Handle")
+			for _, t in ipairs(targets) do
+				if hum.Health <= 0 then break end
+				if t[1].Health > 0 and t[2].Parent then
+					local pos = t[2].Position - t[2].CFrame.LookVector * 2.2
+					root.CFrame = CFrame.lookAt(pos, t[2].Position)
+					root.AssemblyLinearVelocity = Vector3.zero
+					if firetouchinterest and handle then
+						pcall(firetouchinterest, t[2], handle, 0)
+						pcall(firetouchinterest, t[2], handle, 1)
+					end
+					pcall(function() knife:Activate() end)
+					task.wait(step)
+				end
+			end
+			if root.Parent and hum.Health > 0 then
+				root.CFrame = origin
+				root.AssemblyLinearVelocity = Vector3.zero
+			end
+			busy = false
+			toast("Kill All finished")
+		end)
+	end)
+end
+
+do
 	local SOUNDS = {
 		{ "Sound 1", "https://www.image2url.com/r2/default/audio/1794890416204-b08db81c-0beb-4e35-9069-705a9a235032.mp3" },
 		{ "Sound 2", "https://www.image2url.com/r2/default/audio/1794890479019-35b7f533-d69b-48c2-b647-4dcb4bf71a31.mp3" },
@@ -2209,7 +2447,8 @@ do
 		popup.Visible = true
 		refresh()
 	end)
-	addSlider(ksBox, "Kill Sound Volume", 1, 300, 150, function(v) state.volume = v / 100 end, true)
+	addSlider(ksBox, "Kill Sound Volume", 1, 1000, 150, function(v) state.volume = v / 100 end, true)
+	addToggle(ksBox, "Mute Gun Sound", false, function(on) U.muteGun(on) end)
 	task.spawn(getSound, SOUNDS[state.sel][2])
 
 	local lastAttack = 0
