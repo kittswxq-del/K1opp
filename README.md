@@ -451,7 +451,7 @@ local function addToggle(page, text, default, callback)
 	local initial = Persist.get(key)
 	if initial == nil then initial = default and true or false end
 	if initial then set(true) end
-	return set
+	return set, row
 end
 
 local function addNavRow(page, text, arrowText, onClick)
@@ -465,6 +465,37 @@ local function addNavRow(page, text, arrowText, onClick)
 	arrow.TextXAlignment = Enum.TextXAlignment.Center; arrow.ZIndex = 5
 	row.MouseButton1Click:Connect(function() onClick(row, l) end)
 	return row, l
+end
+
+local function addGroup(page, row, arrowX)
+	local box = Instance.new("Frame", page)
+	box.Name = page.Name
+	box.Size = UDim2.new(1,-6,0,0); box.AutomaticSize = Enum.AutomaticSize.Y
+	box.BackgroundTransparency = 1; box.BorderSizePixel = 0; box.Visible = false; box.ZIndex = 5
+	local layout = Instance.new("UIListLayout", box); layout.Padding = UDim.new(0,6)
+	local pad = Instance.new("UIPadding", box); pad.PaddingLeft = UDim.new(0,14)
+	local arrow = Instance.new("TextButton", row)
+	arrow.Size = UDim2.new(0,26,0,24); arrow.Position = UDim2.new(1, arrowX or -84, 0.5, -12)
+	arrow.BackgroundColor3 = Color3.fromRGB(40,41,58); arrow.Text = "↓"
+	arrow.TextColor3 = ACCENT; arrow.Font = Enum.Font.GothamBold; arrow.TextSize = 15
+	arrow.AutoButtonColor = false; arrow.ZIndex = 6; corner(arrow, 6)
+	local label = row:FindFirstChildOfClass("TextLabel")
+	if label then label.Size = UDim2.new(1,-120,1,0) end
+	local function setOpen(o) box.Visible = o; arrow.Text = o and "↑" or "↓" end
+	arrow.MouseButton1Click:Connect(function() setOpen(not box.Visible) end)
+	return box, setOpen
+end
+
+local function addDropRow(page, text)
+	local row = Instance.new("TextButton", page)
+	row.Size = UDim2.new(1,-6,0,36); row.BackgroundColor3 = PANEL
+	row.Text = ""; row.AutoButtonColor = false; row.ZIndex = 5; corner(row, 8)
+	local l = lbl(row, text, 13)
+	l.Position = UDim2.new(0,12,0,0); l.ZIndex = 5
+	local box, setOpen = addGroup(page, row, -34)
+	l.Size = UDim2.new(1,-50,1,0)
+	row.MouseButton1Click:Connect(function() setOpen(not box.Visible) end)
+	return box
 end
 
 local function addSlider(page, text, mn, mx, default, callback, isInt)
@@ -585,15 +616,21 @@ end)
 
 local fovOn, fovVal = false, 70
 RunService.RenderStepped:Connect(function() if fovOn then cam.FieldOfView = fovVal end end)
-addToggle(visTab, "Custom FOV", false, function(v) fovOn = v; if not v then cam.FieldOfView = 70 end end)
-addSlider(visTab, "FOV", 30, 120, 70, function(v) fovVal = v end)
+do
+	local _, fovRow = addToggle(visTab, "Custom FOV", false, function(v) fovOn = v; if not v then cam.FieldOfView = 70 end end)
+	local fovBox = addGroup(visTab, fovRow)
+	addSlider(fovBox, "FOV", 30, 120, 70, function(v) fovVal = v end)
+end
 
 local stretchOn, stretchY = false, 0.7
 RunService.RenderStepped:Connect(function()
 	if stretchOn then cam.CFrame = cam.CFrame * CFrame.new(0,0,0, 1,0,0, 0,stretchY,0, 0,0,1) end
 end)
-addToggle(visTab, "Stretch Resolution", false, function(v) stretchOn = v end)
-addSlider(visTab, "Stretch Y", 0.3, 1, 0.7, function(v) stretchY = v end)
+do
+	local _, stRow = addToggle(visTab, "Stretch Resolution", false, function(v) stretchOn = v end)
+	local stBox = addGroup(visTab, stRow)
+	addSlider(stBox, "Stretch Y", 0.3, 1, 0.7, function(v) stretchY = v end)
+end
 
 local origMat = setmetatable({}, {__mode="k"})
 local origShadows, antiConn
@@ -1601,8 +1638,11 @@ local Move = {
 	arBoost = false,
 }
 
-addToggle(mainTab, "Normal Speed", false, function(on) Move.normalOn = on end)
-addNumberRow(mainTab, "Normal Speed value", 60, function(n) Move.normal = n end)
+do
+	local _, nsRow = addToggle(mainTab, "Normal Speed", false, function(on) Move.normalOn = on end)
+	local nsBox = addGroup(mainTab, nsRow)
+	addNumberRow(nsBox, "Normal Speed value", 60, function(n) Move.normal = n end)
+end
 
 do
 	local jumpTouch = nil
@@ -1701,8 +1741,8 @@ do
 		end
 	end)
 
-	local setSpam, setAD
-	setSpam = addToggle(combatTab, "Wallhop (Spam Jump)", false, function(on)
+	local setSpam, setAD, spamRow, adRow
+	setSpam, spamRow = addToggle(combatTab, "Wallhop (Spam Jump)", false, function(on)
 		if on then
 			Move.mode = "spam"; wh.speed = Move.spam.min
 			if setAD then setAD(false) end
@@ -1710,11 +1750,12 @@ do
 			Move.mode = nil
 		end
 	end)
-	addRangeRow(combatTab, "Speed  min - max", 16, 60, function(a, b)
+	local spamBox = addGroup(combatTab, spamRow)
+	addRangeRow(spamBox, "Speed  min - max", 16, 60, function(a, b)
 		Move.spam.min, Move.spam.max = a, b
 	end)
 
-	setAD = addToggle(combatTab, "Wallhop (A-D)", false, function(on)
+	setAD, adRow = addToggle(combatTab, "Wallhop (A-D)", false, function(on)
 		if on then
 			Move.mode = "ad"; wh.speed = Move.ad.min; wh.lastDir = nil
 			if setSpam then setSpam(false) end
@@ -1722,7 +1763,8 @@ do
 			Move.mode = nil
 		end
 	end)
-	addRangeRow(combatTab, "Speed  min - max", 16, 60, function(a, b)
+	local adBox = addGroup(combatTab, adRow)
+	addRangeRow(adBox, "Speed  min - max", 16, 60, function(a, b)
 		Move.ad.min, Move.ad.max = a, b
 	end)
 end
@@ -1869,7 +1911,7 @@ end
 do
 	local on, spinPct = false, 100
 	local lastAutoRotate = true
-	addToggle(combatTab, "Spin", false, function(v)
+	local _, spinRow = addToggle(combatTab, "Spin", false, function(v)
 		on = v
 		local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
 		if hum then
@@ -1877,7 +1919,8 @@ do
 			else hum.AutoRotate = true end
 		end
 	end)
-	addNumberRow(combatTab, "Spin Speed (10-1000%)", 100, function(n) spinPct = n end, 10)
+	local spinBox = addGroup(combatTab, spinRow)
+	addNumberRow(spinBox, "Spin Speed (10-1000%)", 100, function(n) spinPct = n end, 10)
 	RunService.Heartbeat:Connect(function()
 		if not on then return end
 		local char = lp.Character
@@ -1950,7 +1993,8 @@ do
 			if setSheriff then setSheriff(false) end
 		elseif mode == "murderer" then mode = nil end
 	end)
-	addNumberRow(combatTab, "Aim Lock Range (studs)", 100, function(n) range = n end)
+	local aimBox = addDropRow(combatTab, "Aim Lock Settings")
+	addNumberRow(aimBox, "Aim Lock Range (studs)", 100, function(n) range = n end)
 end
 
 do
@@ -1967,7 +2011,7 @@ do
 		SOUNDS[#SOUNDS + 1] = { string.sub(s, 1, 22), s }
 	end
 
-	local state = { on = false, sel = 1, volume = 1 }
+	local state = { on = false, sel = 1, volume = 1.5 }
 	local savedSel = Persist.get("killsound.sel")
 	if type(savedSel) == "number" and SOUNDS[savedSel] then state.sel = savedSel end
 
@@ -1981,16 +2025,36 @@ do
 		return nil
 	end
 
-	local function play(src)
+	local SoundSvc = game:GetService("SoundService")
+	local ContentProv = game:GetService("ContentProvider")
+	local cache = {}
+
+	local function getSound(src)
 		local id = resolve(src)
-		if not id then toast("Sound not found: " .. src); return end
-		local s = Instance.new("Sound")
-		s.SoundId = id
-		s.Volume = state.volume
-		s.Parent = game:GetService("SoundService")
-		s:Play()
-		s.Ended:Connect(function() s:Destroy() end)
-		task.delay(15, function() if s.Parent then s:Destroy() end end)
+		if not id then return nil end
+		local snd = cache[id]
+		if snd and snd.Parent then return snd end
+		snd = Instance.new("Sound")
+		snd.Name = "VisionKillSound"
+		snd.SoundId = id
+		snd.Looped = false
+		snd.Parent = SoundSvc
+		cache[id] = snd
+		task.spawn(function() pcall(function() ContentProv:PreloadAsync({ snd }) end) end)
+		return snd
+	end
+
+	local function play(src)
+		local snd = getSound(src)
+		if not snd then toast("Sound not found: " .. src); return end
+		snd.Volume = math.clamp(state.volume, 0, 10)
+		task.spawn(function()
+			local t0 = os.clock()
+			while not snd.IsLoaded and os.clock() - t0 < 6 do task.wait(0.05) end
+			if not snd.IsLoaded then toast("Sound failed to load (private or blocked audio)"); return end
+			snd.TimePosition = 0
+			snd:Play()
+		end)
 	end
 
 	local popup = Instance.new("Frame", main)
@@ -2046,6 +2110,7 @@ do
 			pick.MouseButton1Click:Connect(function()
 				state.sel = i
 				Persist.set("killsound.sel", i)
+				task.spawn(getSound, SOUNDS[i][2])
 				if navLabel then navLabel.Text = "Kill Sound: " .. SOUNDS[i][1] end
 				refresh()
 			end)
@@ -2079,30 +2144,50 @@ do
 
 	refresh()
 
-	addToggle(combatTab, "Kill Sound", false, function(on) state.on = on end)
-	navRow, navLabel = addNavRow(combatTab, "Kill Sound: " .. SOUNDS[state.sel][1], "›", function()
+	local _, ksRow = addToggle(combatTab, "Kill Sound", false, function(on) state.on = on end)
+	local ksBox = addGroup(combatTab, ksRow)
+	navRow, navLabel = addNavRow(ksBox, "Kill Sound: " .. SOUNDS[state.sel][1], "›", function()
 		popup.Visible = true
 		refresh()
 	end)
-	addSlider(combatTab, "Kill Sound Volume", 1, 100, 100, function(v) state.volume = v / 100 end, true)
+	addSlider(ksBox, "Kill Sound Volume", 1, 300, 150, function(v) state.volume = v / 100 end, true)
+	task.spawn(getSound, SOUNDS[state.sel][2])
 
 	local lastAttack = 0
-	U.activated[#U.activated + 1] = function(tool)
+	local function isWeapon(tool)
 		local n = tool.Name:lower()
-		if n:find("knife", 1, true) or n:find("gun", 1, true) or n:find("revolver", 1, true) then
-			lastAttack = os.clock()
+		return n:find("knife", 1, true) or n:find("gun", 1, true) or n:find("revolver", 1, true)
+	end
+	U.activated[#U.activated + 1] = function(tool)
+		if isWeapon(tool) then lastAttack = os.clock() end
+	end
+	UIS.InputBegan:Connect(function(input)
+		local t = input.UserInputType
+		if t ~= Enum.UserInputType.MouseButton1 and t ~= Enum.UserInputType.Touch then return end
+		local char = lp.Character
+		if not char then return end
+		for _, c in ipairs(char:GetChildren()) do
+			if c:IsA("Tool") and isWeapon(c) then lastAttack = os.clock(); return end
 		end
+	end)
+
+	local counted = setmetatable({}, { __mode = "k" })
+	local function onDeath(hum)
+		if counted[hum] then return end
+		counted[hum] = true
+		if not state.on or os.clock() - lastAttack > 3 then return end
+		local mine = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+		local theirs = hum.Parent and hum.Parent:FindFirstChild("HumanoidRootPart")
+		if mine and theirs and (mine.Position - theirs.Position).Magnitude > 250 then return end
+		play(SOUNDS[state.sel][2])
 	end
 
 	local function watch(p)
 		local function hook(char)
 			local hum = char:WaitForChild("Humanoid", 10)
 			if not hum then return end
-			hum.Died:Connect(function()
-				if state.on and os.clock() - lastAttack < 1.6 then
-					play(SOUNDS[state.sel][2])
-				end
-			end)
+			hum.Died:Connect(function() onDeath(hum) end)
+			hum.HealthChanged:Connect(function(h) if h <= 0 then onDeath(hum) end end)
 		end
 		if p.Character then task.spawn(hook, p.Character) end
 		p.CharacterAdded:Connect(hook)
@@ -2177,8 +2262,9 @@ do
 		cone.Parent = cam
 	end
 
-	addToggle(visTab, "China Hat", false, function(v) on = v; build() end)
-	addSelector(visTab, "China Hat Size", names, function(name) sizeName = name; build() end)
+	local _, hatRow = addToggle(visTab, "China Hat", false, function(v) on = v; build() end)
+	local hatBox = addGroup(visTab, hatRow)
+	addSelector(hatBox, "China Hat Size", names, function(name) sizeName = name; build() end)
 	lp.CharacterAdded:Connect(function()
 		task.wait(0.6)
 		build()
