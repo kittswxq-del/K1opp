@@ -1,7 +1,7 @@
 do
-	local introPlayer = game:GetService("Players").LocalPlayer
-	local introContentProvider = game:GetService("ContentProvider")
-	local introUIS = game:GetService("UserInputService")
+	local player = game:GetService("Players").LocalPlayer
+	local contentProvider = game:GetService("ContentProvider")
+	local UserInputService = game:GetService("UserInputService")
 
 	local Images = {
 		"rbxassetid://90082193310359", "rbxassetid://140111217806195", "rbxassetid://113259892662011",
@@ -20,39 +20,43 @@ do
 		"rbxassetid://98828480242667", "rbxassetid://135083086902172", "rbxassetid://109318742417115",
 		"rbxassetid://117259790998663", "rbxassetid://124917742187190", "rbxassetid://111964888652172",
 		"rbxassetid://117782207065349", "rbxassetid://72406282546539", "rbxassetid://124069160042945",
-		"rbxassetid://137758638233258", "rbxassetid://98296136420850",
+		"rbxassetid://137758638233258", "rbxassetid://98296136420850"
 	}
 
 	local FPS = 240
 	local LOOP = true
 
-	pcall(function() introContentProvider:PreloadAsync(Images) end)
+	local assets = {}
+	for _, id in ipairs(Images) do
+		table.insert(assets, id)
+	end
+	contentProvider:PreloadAsync(assets)
 
-	local introGui = Instance.new("ScreenGui")
-	introGui.Name = "IntroGui"
-	introGui.Parent = introPlayer:WaitForChild("PlayerGui")
-	introGui.ResetOnSpawn = false
-	introGui.IgnoreGuiInset = true
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "IntroGui"
+	screenGui.Parent = player:WaitForChild("PlayerGui")
+	screenGui.ResetOnSpawn = false
+	screenGui.IgnoreGuiInset = true
 
-	local introFrame = Instance.new("Frame")
-	introFrame.Size = UDim2.new(1, 0, 1, 0)
-	introFrame.BackgroundColor3 = Color3.new(0, 0, 0)
-	introFrame.BackgroundTransparency = 0
-	introFrame.Parent = introGui
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundColor3 = Color3.new(0, 0, 0)
+	frame.BackgroundTransparency = 0
+	frame.Parent = screenGui
 
 	local layer1 = Instance.new("ImageLabel")
 	layer1.Size = UDim2.new(1, 0, 1, 0)
 	layer1.BackgroundTransparency = 1
 	layer1.ScaleType = Enum.ScaleType.Fit
 	layer1.ZIndex = 2
-	layer1.Parent = introFrame
+	layer1.Parent = frame
 
 	local layer2 = Instance.new("ImageLabel")
 	layer2.Size = UDim2.new(1, 0, 1, 0)
 	layer2.BackgroundTransparency = 1
 	layer2.ScaleType = Enum.ScaleType.Fit
 	layer2.ZIndex = 1
-	layer2.Parent = introFrame
+	layer2.Parent = frame
 
 	layer1.Image = Images[1]
 	layer2.Image = Images[1]
@@ -71,7 +75,7 @@ do
 	clickArea.Active = false
 	clickArea.Visible = false
 	clickArea.ZIndex = 10
-	clickArea.Parent = introFrame
+	clickArea.Parent = frame
 
 	local skipText = Instance.new("TextLabel")
 	skipText.Name = "SkipText"
@@ -93,7 +97,7 @@ do
 		end
 	end)
 
-	introUIS.InputBegan:Connect(function(input, processed)
+	UserInputService.InputBegan:Connect(function(input, processed)
 		if skipped or not skipAvailable then
 			return
 		end
@@ -104,7 +108,7 @@ do
 	end)
 
 	task.delay(2.5, function()
-		if not skipped and introGui.Parent then
+		if not skipped and screenGui.Parent then
 			skipAvailable = true
 			clickArea.Visible = true
 			clickArea.Active = true
@@ -113,11 +117,10 @@ do
 
 	local currentIdx = 1
 	local total = #Images
-	local frameDelay = 1 / FPS
+	local delay = 1 / FPS
 
 	while not skipped and (LOOP or currentIdx < total) do
 		local nextIdx = currentIdx + 1
-
 		if nextIdx > total then
 			if not LOOP then
 				break
@@ -126,7 +129,6 @@ do
 		end
 
 		local behind, front
-
 		if layer1.ZIndex == 1 then
 			behind = layer1
 			front = layer2
@@ -136,25 +138,20 @@ do
 		end
 
 		behind.Image = Images[nextIdx]
-
 		task.wait(0.01)
-
 		if skipped then
 			break
 		end
 
 		behind.ZIndex = 2
 		front.ZIndex = 1
-
 		currentIdx = nextIdx
-
-		task.wait(frameDelay)
+		task.wait(delay)
 	end
 
-	introGui:Destroy()
+	screenGui:Destroy()
 end
 
--- Vision GUI: переключатели + Visuals (Accessories) + фоны + Copy Job ID
 repeat task.wait() until game:IsLoaded()
 
 local Players       = game:GetService("Players")
@@ -165,31 +162,61 @@ local Lighting      = game:GetService("Lighting")
 local InsertService = game:GetService("InsertService")
 local lp  = Players.LocalPlayer
 local cam = workspace.CurrentCamera
+local Persist = { data = {}, file = "VisionGUI_Settings.json", counts = {} }
+local U = { activated = {} }
+do
+	local HttpService = game:GetService("HttpService")
+	if isfile and readfile then
+		local ok, raw = pcall(function()
+			if isfile(Persist.file) then return readfile(Persist.file) end
+		end)
+		if ok and raw then
+			local ok2, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
+			if ok2 and type(decoded) == "table" then Persist.data = decoded end
+		end
+	end
+	local pending = false
+	function Persist.save()
+		if pending or not writefile then return end
+		pending = true
+		task.delay(0.5, function()
+			pending = false
+			pcall(function() writefile(Persist.file, HttpService:JSONEncode(Persist.data)) end)
+		end)
+	end
+	function Persist.get(k) return Persist.data[k] end
+	function Persist.set(k, v)
+		Persist.data[k] = v
+		Persist.save()
+	end
+	function Persist.key(scope, text)
+		local base = scope .. "/" .. text
+		Persist.counts[base] = (Persist.counts[base] or 0) + 1
+		return base .. "#" .. Persist.counts[base]
+	end
+end
+
+do
+	local hooked = setmetatable({}, { __mode = "k" })
+	local function hook(tool)
+		if not tool:IsA("Tool") or hooked[tool] then return end
+		hooked[tool] = true
+		tool.Activated:Connect(function()
+			for _, fn in ipairs(U.activated) do task.spawn(fn, tool) end
+		end)
+	end
+	local function watch(char)
+		for _, c in ipairs(char:GetChildren()) do hook(c) end
+		char.ChildAdded:Connect(hook)
+	end
+	if lp.Character then watch(lp.Character) end
+	lp.CharacterAdded:Connect(watch)
+end
 
 local ACCENT = Color3.fromRGB(190, 120, 255)
 local BG     = Color3.fromRGB(14,  15,  22)
 local PANEL  = Color3.fromRGB(24,  25,  36)
 
-local HttpService = game:GetService("HttpService")
-local SETTINGS_FILE = "VisionGUI_Settings.json"
-local Settings = {}
-if writefile and readfile and isfile and isfile(SETTINGS_FILE) then
-	local ok, data = pcall(function() return HttpService:JSONDecode(readfile(SETTINGS_FILE)) end)
-	if ok and type(data) == "table" then Settings = data end
-end
-local function saveSettings()
-	if writefile then
-		pcall(function() writefile(SETTINGS_FILE, HttpService:JSONEncode(Settings)) end)
-	end
-end
-local _keyCounts = {}
-local function makeKey(text)
-	_keyCounts[text] = (_keyCounts[text] or 0) + 1
-	if _keyCounts[text] > 1 then return text .. "#" .. _keyCounts[text] end
-	return text
-end
-
--- удалить старый GUI
 for _, p in ipairs({ game:GetService("CoreGui"), lp:WaitForChild("PlayerGui") }) do
 	local old = p:FindFirstChild("VisionGUI")
 	if old then old:Destroy() end
@@ -204,7 +231,6 @@ if not pcall(function() gui.Parent = game:GetService("CoreGui") end) or not gui.
 	gui.Parent = lp:WaitForChild("PlayerGui")
 end
 
--- helpers
 local function corner(o, r)
 	Instance.new("UICorner", o).CornerRadius = UDim.new(0, r or 8)
 end
@@ -224,7 +250,6 @@ local function lbl(parent, text, size, font, color)
 	return l
 end
 
--- уведомление-тост внутри GUI
 local function toast(text)
 	local t = Instance.new("TextLabel", gui)
 	t.AnchorPoint = Vector2.new(0.5, 1)
@@ -237,7 +262,6 @@ local function toast(text)
 	task.delay(2, function() t:Destroy() end)
 end
 
--- фоновый ImageLabel прямо в ScreenGui (позади main)
 local bgImage = Instance.new("ImageLabel", gui)
 bgImage.Name                   = "BGLayer"
 bgImage.AnchorPoint            = Vector2.new(0.5, 0.5)
@@ -250,7 +274,6 @@ bgImage.ScaleType              = Enum.ScaleType.Crop
 bgImage.ZIndex                 = 1
 corner(bgImage, 12)
 
--- главное окно
 local main = Instance.new("Frame", gui)
 main.Size             = UDim2.new(0, 420, 0, 360)
 main.AnchorPoint      = Vector2.new(0.5, 0.5)
@@ -270,7 +293,6 @@ local function syncBG()
 	bgImage.Size = UDim2.new(0, main.AbsoluteSize.X, 0, main.AbsoluteSize.Y)
 end
 
--- заголовок
 local titleBar = Instance.new("Frame", main)
 titleBar.Size = UDim2.new(1, 0, 0, 38)
 titleBar.BackgroundTransparency = 1
@@ -280,7 +302,6 @@ titleLbl.Position = UDim2.new(0, 14, 0, 0)
 titleLbl.Size = UDim2.new(1, -28, 1, 0)
 titleLbl.ZIndex = 3
 
--- drag
 local guiLocked = false
 do
 	local dragging, startMainPos, startInput
@@ -313,7 +334,6 @@ UIS.InputBegan:Connect(function(i, gp)
 	end
 end)
 
--- tabs
 local tabBar = Instance.new("Frame", main)
 tabBar.Size = UDim2.new(1, -20, 0, 30)
 tabBar.Position = UDim2.new(0, 10, 0, 40)
@@ -327,7 +347,6 @@ contentFrame.Size = UDim2.new(1, -20, 1, -84)
 contentFrame.Position = UDim2.new(0, 10, 0, 76)
 contentFrame.BackgroundTransparency = 1; contentFrame.ZIndex = 3
 
--- кнопки в заголовке: свернуть и закрепить (lock)
 do
 	local collapsed = false
 	local FULL_H, MIN_H = 360, 38
@@ -345,7 +364,12 @@ do
 	lockBtn.MouseButton1Click:Connect(function()
 		guiLocked = not guiLocked
 		lockBtn.Text = guiLocked and "🔒" or "🔓"
+		Persist.set("gui.locked", guiLocked)
 	end)
+	if Persist.get("gui.locked") == true then
+		guiLocked = true
+		lockBtn.Text = "🔒"
+	end
 
 	minBtn.MouseButton1Click:Connect(function()
 		collapsed = not collapsed
@@ -386,6 +410,7 @@ local function newTab(name)
 	b.TextColor3 = Color3.new(1,1,1); b.AutoButtonColor = false; b.ZIndex = 4
 	corner(b, 8)
 	local page = Instance.new("ScrollingFrame", contentFrame)
+	page.Name = name
 	page.Size = UDim2.new(1, 0, 1, 0); page.BackgroundTransparency = 1
 	page.BorderSizePixel = 0; page.ScrollBarThickness = 3
 	page.ScrollBarImageColor3 = ACCENT; page.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -397,8 +422,7 @@ local function newTab(name)
 end
 
 local function addToggle(page, text, default, callback)
-	local key = makeKey(text)
-	if Settings[key] ~= nil then default = Settings[key] end
+	local key = Persist.key(page.Name, text)
 	local row = Instance.new("TextButton", page)
 	row.Size = UDim2.new(1, -6, 0, 36); row.BackgroundColor3 = PANEL
 	row.Text = ""; row.AutoButtonColor = false; row.ZIndex = 5
@@ -420,15 +444,16 @@ local function addToggle(page, text, default, callback)
 		TweenSvc:Create(knob, TweenInfo.new(0.15), {
 			Position = state and UDim2.new(1,-18,0.5,-8) or UDim2.new(0,2,0.5,-8),
 		}):Play()
-		Settings[key] = state; saveSettings()
+		Persist.set(key, state)
 		if callback then task.spawn(callback, state) end
 	end
 	row.MouseButton1Click:Connect(function() set(not state) end)
-	set(default and true or false)
+	local initial = Persist.get(key)
+	if initial == nil then initial = default and true or false end
+	if initial then set(true) end
 	return set
 end
 
--- кнопка-строка со стрелкой (открывает попап / выполняет действие)
 local function addNavRow(page, text, arrowText, onClick)
 	local row = Instance.new("TextButton", page)
 	row.Size = UDim2.new(1,-6,0,36); row.BackgroundColor3 = PANEL
@@ -443,8 +468,7 @@ local function addNavRow(page, text, arrowText, onClick)
 end
 
 local function addSlider(page, text, mn, mx, default, callback, isInt)
-	local key = makeKey(text)
-	if Settings[key] ~= nil then default = Settings[key] end
+	local key = Persist.key(page.Name, text)
 	local row = Instance.new("Frame", page)
 	row.Size = UDim2.new(1, -6, 0, 50); row.BackgroundColor3 = PANEL
 	row.ZIndex = 5; corner(row, 8)
@@ -461,11 +485,16 @@ local function addSlider(page, text, mn, mx, default, callback, isInt)
 	fill.Size = UDim2.new((default-mn)/(mx-mn), 0, 1, 0)
 	fill.ZIndex = 6; corner(fill, 3)
 	local dragging = false
+	local function apply(v)
+		fill.Size = UDim2.new((v - mn) / (mx - mn), 0, 1, 0)
+		valLbl.Text = tostring(v)
+		callback(v)
+	end
 	local function update(x)
 		local a = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
 		local v = isInt and math.floor(mn + (mx-mn)*a + 0.5) or math.floor((mn + (mx-mn)*a)*100+0.5)/100
-		fill.Size = UDim2.new(a, 0, 1, 0); valLbl.Text = tostring(v)
-		Settings[key] = v; saveSettings(); callback(v)
+		Persist.set(key, v)
+		apply(v)
 	end
 	bar.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1
@@ -479,15 +508,13 @@ local function addSlider(page, text, mn, mx, default, callback, isInt)
 		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement
 		or i.UserInputType == Enum.UserInputType.Touch) then update(i.Position.X) end
 	end)
-	task.spawn(callback, default)
+	local saved = Persist.get(key)
+	if type(saved) == "number" then apply(math.clamp(saved, mn, mx)) end
 end
-
--- ════════ ВКЛАДКИ ════════
 
 local mainTab = newTab("Main")
 local combatTab = newTab("Combat")
 
--- Visuals
 local visTab = newTab("Visuals")
 local espOn, tracersOn = false, false
 local espObjects, tracerLines = {}, {}
@@ -553,7 +580,7 @@ end)
 addToggle(visTab, "ESP", false, function(v) espOn = v; if not v then clearESP() end end)
 addToggle(visTab, "ESP Tracers", false, function(v)
 	tracersOn = v; if not v then clearTracers() end
-	if v and not Drawing then warn("[Vision] Drawing API недоступен") end
+	if v and not Drawing then warn("[Vision] Drawing API unavailable") end
 end)
 
 local fovOn, fovVal = false, 70
@@ -605,166 +632,6 @@ addToggle(visTab, "Fullbright", false, function(v)
 	end
 end)
 
--- ════════ SHOT TRACE (белая линия от выстрела, 1.2 сек) ════════
-do
-	local shotTraceOn = false
-	local mouse = lp:GetMouse()
-
-	local function fireShotTrace(origin, hitPos)
-		if not shotTraceOn then return end
-		local terrain = workspace.Terrain
-		local a0 = Instance.new("Attachment"); a0.WorldPosition = origin; a0.Parent = terrain
-		local a1 = Instance.new("Attachment"); a1.WorldPosition = hitPos; a1.Parent = terrain
-		local beam = Instance.new("Beam")
-		beam.Attachment0 = a0; beam.Attachment1 = a1
-		beam.Width0 = 0.06; beam.Width1 = 0.02
-		beam.Color = ColorSequence.new(Color3.new(1,1,1))
-		beam.Transparency = NumberSequence.new(0)
-		beam.FaceCamera = true
-		beam.Segments = 1
-		beam.Parent = terrain
-		task.delay(1.2, function()
-			pcall(function() beam:Destroy() end)
-			pcall(function() a0:Destroy() end)
-			pcall(function() a1:Destroy() end)
-		end)
-	end
-
-	local hooked = setmetatable({}, { __mode = "k" })
-	local function hookWeapon(tool)
-		if not tool:IsA("Tool") or hooked[tool] then return end
-		local nm = tool.Name:lower()
-		if not (nm:find("gun", 1, true) or nm:find("revolver", 1, true)) then return end
-		hooked[tool] = true
-		tool.Activated:Connect(function()
-			local origin = cam.CFrame.Position
-			local hitPos = (mouse.Hit and mouse.Hit.Position) or (origin + cam.CFrame.LookVector * 300)
-			fireShotTrace(origin, hitPos)
-		end)
-	end
-
-	local function hookContainer(container)
-		if not container then return end
-		for _, c in ipairs(container:GetChildren()) do hookWeapon(c) end
-		container.ChildAdded:Connect(hookWeapon)
-	end
-
-	task.spawn(function() hookContainer(lp:FindFirstChildOfClass("Backpack") or lp:WaitForChild("Backpack")) end)
-	lp.CharacterAdded:Connect(hookContainer)
-	if lp.Character then hookContainer(lp.Character) end
-
-	addToggle(visTab, "Shot Trace", false, function(v) shotTraceOn = v end)
-end
-
--- ════════ JUMP CIRCLE (круг под ногами при прыжке) ════════
-do
-	local jumpCircleOn = false
-
-	local function spawnJumpCircle(char)
-		if not jumpCircleOn then return end
-		local root = char:FindFirstChild("HumanoidRootPart")
-		if not root then return end
-		local part = Instance.new("Part")
-		part.Shape = Enum.PartType.Cylinder
-		part.Material = Enum.Material.Neon
-		part.Color = ACCENT
-		part.Anchored = true
-		part.CanCollide = false
-		part.CanQuery = false
-		part.Transparency = 0.3
-		part.Size = Vector3.new(0.2, 2, 2)
-		part.CFrame = CFrame.new(root.Position - Vector3.new(0, 2.8, 0)) * CFrame.Angles(0, 0, math.rad(90))
-		part.Parent = workspace
-		local tw = TweenSvc:Create(part, TweenInfo.new(0.45, Enum.EasingStyle.Quad), {
-			Size = Vector3.new(0.2, 6, 6), Transparency = 1,
-		})
-		tw:Play()
-		tw.Completed:Connect(function() part:Destroy() end)
-	end
-
-	local jumpConn
-	local function hookJump(char)
-		if jumpConn then jumpConn:Disconnect() end
-		local hum = char:WaitForChild("Humanoid")
-		jumpConn = hum.StateChanged:Connect(function(_, new)
-			if new == Enum.HumanoidStateType.Jumping then spawnJumpCircle(char) end
-		end)
-	end
-
-	lp.CharacterAdded:Connect(hookJump)
-	if lp.Character then task.spawn(hookJump, lp.Character) end
-
-	addToggle(visTab, "Jump Circle", false, function(v) jumpCircleOn = v end)
-end
-
--- ════════ TRAIL (цветной след за персонажем) ════════
-do
-	local trailOn = false
-	local TRAIL_COLORS = {
-		{ "Purple", Color3.fromRGB(190, 120, 255) },
-		{ "Red",    Color3.fromRGB(220, 40, 40) },
-		{ "Blue",   Color3.fromRGB(70, 130, 255) },
-		{ "Green",  Color3.fromRGB(60, 220, 120) },
-		{ "Pink",   Color3.fromRGB(255, 105, 180) },
-		{ "Orange", Color3.fromRGB(255, 150, 50) },
-		{ "Cyan",   Color3.fromRGB(0, 220, 255) },
-		{ "Yellow", Color3.fromRGB(255, 220, 60) },
-		{ "White",  Color3.fromRGB(235, 235, 235) },
-		{ "Rainbow", Color3.new(1,1,1) },
-	}
-	local trailColor = TRAIL_COLORS[1][2]
-	local trailIsRainbow = false
-	local trail
-
-	local function destroyTrail()
-		if trail then pcall(function() trail:Destroy() end); trail = nil end
-	end
-
-	local function buildTrail(char)
-		destroyTrail()
-		if not trailOn then return end
-		local root = char:FindFirstChild("HumanoidRootPart")
-		if not root then return end
-		local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(0, 1, 0); a0.Parent = root
-		local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(0, -1, 0); a1.Parent = root
-		trail = Instance.new("Trail")
-		trail.Attachment0 = a0; trail.Attachment1 = a1
-		trail.Lifetime = 0.6
-		trail.Color = trailIsRainbow
-			and ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.fromHSV((tick() % 1), 1, 1)),
-				ColorSequenceKeypoint.new(1, Color3.fromHSV((tick() % 1), 1, 1)),
-			})
-			or ColorSequence.new(trailColor)
-		trail.Parent = root
-	end
-
-	lp.CharacterAdded:Connect(function(char) task.wait(0.3); buildTrail(char) end)
-
-	RunService.Heartbeat:Connect(function()
-		if trailOn and trailIsRainbow and trail then
-			local c = Color3.fromHSV((tick() * 0.25) % 1, 1, 1)
-			trail.Color = ColorSequence.new(c)
-		end
-	end)
-
-	addToggle(visTab, "Trail", false, function(v)
-		trailOn = v
-		if v and lp.Character then buildTrail(lp.Character) else destroyTrail() end
-	end)
-
-	local names = {}
-	for _, c in ipairs(TRAIL_COLORS) do table.insert(names, c[1]) end
-	addSelector(visTab, "Trail Color", names, function(name, idx)
-		trailIsRainbow = (name == "Rainbow")
-		trailColor = TRAIL_COLORS[idx][2]
-		if trailOn and lp.Character then buildTrail(lp.Character) end
-	end)
-end
-
--- ════════ ACCESSORIES (визуально, только у тебя на клиенте) ════════
--- Принимает ССЫЛКИ: roblox.com/catalog/ID/... (вещь) или roblox.com/bundles/ID/... (бандл)
-
 local AccAPI = {}
 local accPopup = Instance.new("Frame", main)
 accPopup.Size = UDim2.new(1,-16,1,-48); accPopup.Position = UDim2.new(0,8,0,42)
@@ -773,18 +640,17 @@ accPopup.Visible = false; accPopup.ZIndex = 10
 corner(accPopup, 10); mkStroke(accPopup, ACCENT, 0.45)
 
 do
-	local entries     = {}   -- key -> {name=, ids={assetId,...}}
-	local loadedCache = {}   -- assetId -> Accessory (шаблон)
-	local equipped    = {}   -- key -> {Accessory,...} на персонаже
-	local selected    = {}   -- key -> true (хочет быть надетым)
-	local cards       = {}   -- key -> {btn=, stroke=}
+	local entries     = {}
+	local loadedCache = {}
+	local equipped    = {}
+	local selected    = {}
+	local cards       = {}
 
 	local function getHumanoid()
 		local c = lp.Character
 		return c and c:FindFirstChildOfClass("Humanoid")
 	end
 
-	-- HTTP GET с запасными вариантами под разные executor'ы
 	local function httpGet(url)
 		local ok, res = pcall(function() return game:HttpGet(url) end)
 		if ok and type(res) == "string" and res ~= "" then return res end
@@ -796,7 +662,6 @@ do
 		return nil
 	end
 
-	-- разбор ссылки: "asset" / "bundle" / "share"
 	local function parseLink(text)
 		text = tostring(text or "")
 		local b = text:match("/bundles/(%d+)")
@@ -804,12 +669,11 @@ do
 		local a = text:match("/catalog/(%d+)") or text:match("/library/(%d+)")
 		if a then return "asset", tonumber(a) end
 		if text:find("share") then return "share" end
-		local n = text:match("^%s*(%d+)%s*$")   -- голое число тоже принимаем
+		local n = text:match("^%s*(%d+)%s*$")
 		if n then return "asset", tonumber(n) end
 		return nil
 	end
 
-	-- бандл -> имя + список asset id входящих в него вещей
 	local function resolveBundle(bid)
 		local body = httpGet("https://catalog.roblox.com/v1/bundles/" .. bid .. "/details")
 		if not body then return nil, "can't reach catalog API (HttpGet blocked)" end
@@ -849,7 +713,6 @@ do
 		equipped[key] = nil
 	end
 
-	-- надеть одну вещь на персонажа (+ ручная приварка, если AddAccessory не справился)
 	local function attach(clone, hum, char)
 		local ok, e = pcall(function() hum:AddAccessory(clone) end)
 		if not ok then ok, e = pcall(function() clone.Parent = char end) end
@@ -876,7 +739,6 @@ do
 
 	AccAPI.attach = attach
 
-	-- надеть запись целиком (одна вещь или весь бандл)
 	local function equipEntry(key)
 		local e = entries[key]
 		if not e then return false, "no entry" end
@@ -891,7 +753,7 @@ do
 				local ok, e2 = attach(clone, hum, char)
 				if ok then table.insert(list, clone) else lastErr = e2 end
 			else
-				lastErr = err   -- например голова/одежда из бандла — пропускаем
+				lastErr = err
 			end
 		end
 		equipped[key] = list
@@ -925,7 +787,6 @@ do
 		end
 	end
 
-	-- переодеваем после респавна
 	lp.CharacterAdded:Connect(function(char)
 		char:WaitForChild("Humanoid")
 		task.wait(1)
@@ -933,7 +794,6 @@ do
 		for key in pairs(selected) do task.spawn(equipEntry, key) end
 	end)
 
-	-- шапка
 	local headLbl = lbl(accPopup, "Accessories", 15, Enum.Font.GothamBold, ACCENT)
 	headLbl.Position = UDim2.new(0,12,0,7); headLbl.Size = UDim2.new(1,-120,0,24); headLbl.ZIndex = 11
 
@@ -953,7 +813,6 @@ do
 		for _, key in ipairs(keys) do setSelected(key, false) end
 	end)
 
-	-- подсказка: какую ссылку вставлять
 	local hint = Instance.new("TextLabel", accPopup)
 	hint.Size = UDim2.new(1,-24,0,48); hint.Position = UDim2.new(0,12,0,34)
 	hint.BackgroundTransparency = 1; hint.RichText = true; hint.TextWrapped = true
@@ -964,7 +823,6 @@ do
 		.. 'roblox.com/catalog/85015102365405/Anonymous-Hood\n'
 		.. 'roblox.com/bundles/<font color="rgb(190,120,255)">ID</font>/Name'
 
-	-- сетка с превью
 	local grid = Instance.new("ScrollingFrame", accPopup)
 	grid.Size = UDim2.new(1,-12,1,-130); grid.Position = UDim2.new(0,6,0,86)
 	grid.BackgroundTransparency = 1; grid.BorderSizePixel = 0
@@ -993,7 +851,6 @@ do
 		corner(nameBg, 6)
 		cards[key] = { btn = b, stroke = st }
 
-		-- 3D-превью из первой загруженной вещи (для бандла — первой подходящей)
 		task.spawn(function()
 			local acc
 			for _, aid in ipairs(ids) do
@@ -1017,7 +874,6 @@ do
 			vcam.CFrame = CFrame.new(Vector3.new(dist * 0.5, s.Y * 0.3, dist), Vector3.new(0, 0, 0))
 		end)
 
-		-- реальное название одиночной вещи
 		if key:sub(1,1) == "a" then
 			task.spawn(function()
 				local ok, info = pcall(function()
@@ -1034,7 +890,6 @@ do
 			setSelected(key, not selected[key])
 		end)
 
-		-- крестик: убрать карточку и снять вещи
 		local x = Instance.new("TextButton", b)
 		x.Size = UDim2.new(0,18,0,18); x.Position = UDim2.new(1,-20,0,2)
 		x.BackgroundColor3 = BG; x.BackgroundTransparency = 0.2
@@ -1046,7 +901,6 @@ do
 		end)
 	end
 
-	-- поле для ссылки
 	local box = Instance.new("TextBox", accPopup)
 	box.Size = UDim2.new(1,-96,0,30); box.Position = UDim2.new(0,8,1,-38)
 	box.BackgroundColor3 = Color3.fromRGB(40,41,58); box.Text = ""
@@ -1062,6 +916,25 @@ do
 	addBtn.TextColor3 = Color3.new(0,0,0); addBtn.Font = Enum.Font.GothamBold
 	addBtn.TextSize = 13; addBtn.AutoButtonColor = false; addBtn.ZIndex = 12; corner(addBtn, 6)
 
+	local function addEntry(kind, id, autoSelect)
+		local key = (kind == "bundle" and "b" or "a") .. id
+		if not entries[key] then
+			if kind == "asset" then
+				entries[key] = { name = "ID " .. id, ids = { id } }
+				addCard(key, "ID " .. id, { id },
+					"rbxthumb://type=Asset&id=" .. id .. "&w=150&h=150")
+			else
+				toast("Loading bundle...")
+				local name, ids = resolveBundle(id)
+				if not name then toast("Bundle failed: " .. tostring(ids)); return end
+				entries[key] = { name = name, ids = ids }
+				addCard(key, name, ids,
+					"rbxthumb://type=BundleThumbnail&id=" .. id .. "&w=150&h=150")
+			end
+		end
+		if autoSelect and not selected[key] then setSelected(key, true) end
+	end
+
 	addBtn.MouseButton1Click:Connect(function()
 		local kind, id = parseLink(box.Text)
 		if not kind then toast("Paste an item link (catalog or bundle)"); return end
@@ -1069,42 +942,45 @@ do
 			toast("Share links have no ID. Open the item and copy the roblox.com/catalog/... link")
 			return
 		end
-		task.spawn(function()
-			local key = (kind == "bundle" and "b" or "a") .. id
-			if not entries[key] then
-				if kind == "asset" then
-					entries[key] = { name = "ID " .. id, ids = { id } }
-					addCard(key, "ID " .. id, { id },
-						"rbxthumb://type=Asset&id=" .. id .. "&w=150&h=150")
-				else
-					toast("Loading bundle...")
-					local name, ids = resolveBundle(id)
-					if not name then toast("Bundle failed: " .. tostring(ids)); return end
-					entries[key] = { name = name, ids = ids }
-					addCard(key, name, ids,
-						"rbxthumb://type=BundleThumbnail&id=" .. id .. "&w=150&h=150")
-				end
+		task.spawn(addEntry, kind, id, true)
+		box.Text = ""
+	end)
+
+	local lastSaved = ""
+	task.spawn(function()
+		local raw = Persist.get("acc.list")
+		if type(raw) == "string" then
+			lastSaved = raw
+			for letter, num, sel in raw:gmatch("([ab])(%d+):(%d)") do
+				addEntry(letter == "b" and "bundle" or "asset", tonumber(num), sel == "1")
 			end
-			if not selected[key] then setSelected(key, true) end
-			box.Text = ""
-		end)
+		end
+		while gui.Parent do
+			local parts = {}
+			for key in pairs(entries) do
+				parts[#parts + 1] = key .. ":" .. (selected[key] and "1" or "0")
+			end
+			table.sort(parts)
+			local joined = table.concat(parts, ",")
+			if joined ~= lastSaved then
+				lastSaved = joined
+				Persist.set("acc.list", joined)
+			end
+			task.wait(2)
+		end
 	end)
 end
 
 addNavRow(visTab, "Accessories", "›", function() accPopup.Visible = true end)
 
--- ════════ SELECTOR (< значение >) ════════
-local function addSelector(page, text, options, onChange)
-	local key = makeKey(text)
+local function addSelector(page, text, options, onChange, manual)
+	local key = (not manual) and Persist.key(page.Name, text) or nil
 	local row = Instance.new("Frame", page)
 	row.Size = UDim2.new(1,-6,0,36); row.BackgroundColor3 = PANEL; row.ZIndex = 5; corner(row, 8)
 	local l = lbl(row, text, 13); l.Position = UDim2.new(0,12,0,0)
 	l.Size = UDim2.new(1,-190,1,0); l.ZIndex = 5
 	local idx = 1
-	if Settings[key] then
-		for i, o in ipairs(options) do if o == Settings[key] then idx = i; break end end
-	end
-	local val = lbl(row, options[idx], 12, Enum.Font.GothamBold, ACCENT)
+	local val = lbl(row, options[1], 12, Enum.Font.GothamBold, ACCENT)
 	val.Size = UDim2.new(0,100,1,0); val.Position = UDim2.new(1,-144,0,0)
 	val.TextXAlignment = Enum.TextXAlignment.Center; val.TextTruncate = Enum.TextTruncate.AtEnd
 	val.ZIndex = 5
@@ -1119,65 +995,18 @@ local function addSelector(page, text, options, onChange)
 	local left, right = mk("<", -170), mk(">", -40)
 	local function setIndex(i, silent)
 		idx = i; val.Text = options[idx]
-		Settings[key] = options[idx]; saveSettings()
+		if key then Persist.set(key, idx) end
 		if not silent and onChange then task.spawn(onChange, options[idx], idx) end
 	end
 	left.MouseButton1Click:Connect(function() setIndex(((idx - 2) % #options) + 1) end)
 	right.MouseButton1Click:Connect(function() setIndex((idx % #options) + 1) end)
-	if onChange then task.spawn(onChange, options[idx], idx) end
+	if key then
+		local saved = Persist.get(key)
+		if type(saved) == "number" and saved > 1 and options[saved] then setIndex(saved) end
+	end
 	return setIndex
 end
 
--- ════════ CHINA HAT (аксессуар, размер S/M/L) ════════
-do
-	local CHINA_HAT_ID = 4622081834
-	local hatOn, hatSize = false, "Medium"
-	local SIZE_SCALE = { Small = 0.65, Medium = 1, Large = 1.5 }
-	local equippedHat
-
-	local function removeHat()
-		if equippedHat then pcall(function() equippedHat:Destroy() end); equippedHat = nil end
-	end
-
-	local function applyHat()
-		removeHat()
-		if not hatOn then return end
-		local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
-		local char = lp.Character
-		if not hum or not char then return end
-		local tpl
-		local ok, res = pcall(function() return game:GetObjects("rbxassetid://" .. CHINA_HAT_ID) end)
-		if ok and res and res[1] then tpl = res[1] end
-		if not tpl then
-			local ok2, model = pcall(function() return InsertService:LoadAsset(CHINA_HAT_ID) end)
-			if ok2 and model then tpl = model end
-		end
-		local acc = tpl and (tpl:IsA("Accessory") and tpl or tpl:FindFirstChildWhichIsA("Accessory", true))
-		if not acc then return end
-		local clone = acc:Clone(); clone.Name = "VisionChinaHat"
-		if AccAPI.attach then AccAPI.attach(clone, hum, char) end
-		local handle = clone:FindFirstChild("Handle")
-		if handle then
-			local scale = SIZE_SCALE[hatSize] or 1
-			local mesh = handle:FindFirstChildWhichIsA("SpecialMesh") or handle:FindFirstChildWhichIsA("BlockMesh")
-			if mesh then
-				mesh.Scale = mesh.Scale * scale
-			else
-				handle.Size = handle.Size * scale
-			end
-		end
-		equippedHat = clone
-	end
-
-	lp.CharacterAdded:Connect(function() task.wait(1); applyHat() end)
-
-	addToggle(visTab, "China Hat", false, function(v) hatOn = v; applyHat() end)
-	addSelector(visTab, "China Hat Size", { "Small", "Medium", "Large" }, function(name)
-		hatSize = name; if hatOn then applyHat() end
-	end)
-end
-
--- ════════ ANIM PACK (данные из DemonDuels) ════════
 local ANIM_PACKS = {
     ["Zombie"] = { idle1="rbxassetid://616158929", idle2="rbxassetid://616160636", walk="rbxassetid://616168032", run="rbxassetid://616163682", jump="rbxassetid://616161997", fall="rbxassetid://616157476", climb="rbxassetid://616156119", swim="rbxassetid://616165109", swimidle="rbxassetid://616166655" },
     ["Ninja"] = { idle1="rbxassetid://656117400", idle2="rbxassetid://656117400", walk="rbxassetid://656121766", run="rbxassetid://656118852", jump="rbxassetid://656117878", fall="rbxassetid://656115606", climb="rbxassetid://656114359", swim="rbxassetid://656117400", swimidle="rbxassetid://656117400" },
@@ -1255,7 +1084,6 @@ do
 	addSelector(visTab, "Anim Pack", animOrder, applyPack)
 end
 
--- ════════ OUTFITS / BEST AVATARS (локально, только у тебя) ════════
 local AVATARS = {
 	{ "ALIEN",    { 10997283529, 125085889448130 } },
 	{ "OUTFIT",   { 125157548394108, 123231522991173, 74827642361405 } },
@@ -1348,7 +1176,6 @@ do
 	end)
 end
 
--- ════════ VIVID GRAPHICS + SKY THEME (данные из DemonDuels) ════════
 local vividGraphicsEnabled, _vividEffects, skyTheme = false, {}, "Off"
 
 local SKY_PRESETS_LIST = {"Off","Night","Aurora","Sunset","Galaxy","Cyber","Sakura","Pink Night","Blood Moon","Emerald Dawn","Volcanic","Arctic","Midnight Ocean","Vaporwave","Toxic","Solar Eclipse","Hellscape","Heaven","Storm","Sunrise","Deep Space","Lavender Dream","Inferno","Mint Sky"}
@@ -1504,18 +1331,14 @@ function disableVividGraphics()
     _vividEffects = {}
 end
 
-
 addToggle(visTab, "Vivid Graphics", false, function(v)
 	if v then pcall(enableVividGraphics) else pcall(disableVividGraphics) end
 end)
 addSelector(visTab, "Sky Theme", SKY_PRESETS_LIST, function(name) pcall(applyCustomSky, name) end)
 
-
--- ════════ ВИДИМОСТЬ ФОНА (1-100) ════════
 do
 	local function setBgVisibility(v)
 		bgImage.ImageTransparency = 1 - v / 100
-		-- до 85% тёмная подложка окна как раньше, выше — плавно исчезает, чтобы фон было видно полностью
 		local overlay = 0.55
 		if v > 85 then overlay = 0.55 + 0.45 * (v - 85) / 15 end
 		main.BackgroundTransparency = overlay
@@ -1523,7 +1346,6 @@ do
 	addSlider(visTab, "Background Visibility", 1, 100, 85, setBgVisibility, true)
 end
 
--- ════════ THEME COLOR (общий цвет интерфейса) ════════
 do
 	local function close(a, b)
 		return math.abs(a.R - b.R) < 0.004 and math.abs(a.G - b.G) < 0.004 and math.abs(a.B - b.B) < 0.004
@@ -1571,12 +1393,13 @@ do
 		return string.format("%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
 	end
 
-	addSelector(visTab, "Theme Color", names, function(_, idx)
+	local setThemeIdx = addSelector(visTab, "Theme Color", names, function(_, idx)
 		setAccent(COLORS[idx][2])
 		if hexBox then hexBox.Text = toHex(COLORS[idx][2]) end
-	end)
+		Persist.set("theme.mode", "preset")
+		Persist.set("theme.idx", idx)
+	end, true)
 
-	-- свой цвет: HEX вида BE78FF
 	local row = Instance.new("Frame", visTab)
 	row.Size = UDim2.new(1,-6,0,36); row.BackgroundColor3 = PANEL; row.ZIndex = 5; corner(row, 8)
 	local l = lbl(row, "Custom Color (HEX)", 13); l.Position = UDim2.new(0,12,0,0)
@@ -1593,13 +1416,22 @@ do
 			local r, g, b = tonumber(s:sub(1,2), 16), tonumber(s:sub(3,4), 16), tonumber(s:sub(5,6), 16)
 			setAccent(Color3.fromRGB(r, g, b))
 			hexBox.Text = s:upper()
+			Persist.set("theme.mode", "custom")
+			Persist.set("theme.hex", s:upper())
 		else
 			hexBox.Text = toHex(ACCENT)
 		end
 	end)
+	local mode = Persist.get("theme.mode")
+	local hex = Persist.get("theme.hex")
+	if mode == "custom" and type(hex) == "string" and #hex == 6 then
+		setAccent(Color3.fromRGB(tonumber(hex:sub(1,2), 16), tonumber(hex:sub(3,4), 16), tonumber(hex:sub(5,6), 16)))
+		hexBox.Text = hex
+	elseif mode == "preset" and COLORS[Persist.get("theme.idx")] then
+		setThemeIdx(Persist.get("theme.idx"))
+	end
 end
 
--- ════════ ESP ROLE (Murderer / Sheriff / Innocent / Lobby, под Murder Mystery) ════════
 do
 	local ROLE_COLORS = {
 		Murderer = Color3.fromRGB(255, 40, 40),
@@ -1608,9 +1440,8 @@ do
 		Lobby    = Color3.fromRGB(160, 160, 170),
 	}
 	local roleOn = false
-	local objs = {}   -- plr -> {hl=, bb=, txt=}
+	local objs = {}
 
-	-- есть ли у игрока предмет с нужным словом в названии (в рюкзаке или в руках)
 	local function hasTool(plr, word)
 		local function scan(container)
 			if not container then return false end
@@ -1622,6 +1453,7 @@ do
 		return scan(plr:FindFirstChildOfClass("Backpack")) or scan(plr.Character)
 	end
 
+	U.hasTool = hasTool
 	local lobbyCF, lobbySize
 	local function refreshLobby()
 		lobbyCF, lobbySize = nil, nil
@@ -1710,39 +1542,40 @@ do
 	end)
 end
 
--- ════════ ПОЛЯ ВВОДА ════════
-local function mkNumBox(row, xOff, default, onCommit)
+local function mkNumBox(row, xOff, default, onCommit, lo, key)
 	local box = Instance.new("TextBox", row)
 	box.Size = UDim2.new(0,66,0,24); box.Position = UDim2.new(1,xOff,0.5,-12)
 	box.BackgroundColor3 = Color3.fromRGB(40,41,58); box.Text = tostring(default)
 	box.TextColor3 = ACCENT; box.Font = Enum.Font.GothamBold; box.TextSize = 13
 	box.ClearTextOnFocus = false; box.ZIndex = 6; corner(box, 6); mkStroke(box, ACCENT, 0.6)
 	local last = default
+	local function commit(n)
+		n = math.clamp(n, lo or 0, 1000)
+		last = n; box.Text = tostring(n)
+		Persist.set(key, n)
+		onCommit(n)
+	end
 	box.FocusLost:Connect(function()
 		local n = tonumber(box.Text)
 		if not n then box.Text = tostring(last); return end
-		n = math.clamp(n, 0, 1000)
-		last = n; box.Text = tostring(n)
-		onCommit(n)
+		commit(n)
 	end)
+	local saved = Persist.get(key)
+	if type(saved) == "number" then commit(saved) end
 	return box
 end
 
-local function addNumberRow(page, text, default, onChange)
-	local key = makeKey(text)
-	if Settings[key] ~= nil then default = Settings[key] end
+local function addNumberRow(page, text, default, onChange, lo)
+	local key = Persist.key(page.Name, text)
 	local row = Instance.new("Frame", page)
 	row.Size = UDim2.new(1,-6,0,36); row.BackgroundColor3 = PANEL; row.ZIndex = 5; corner(row, 8)
 	local l = lbl(row, text, 13); l.Position = UDim2.new(0,12,0,0)
 	l.Size = UDim2.new(1,-100,1,0); l.ZIndex = 5
-	mkNumBox(row, -78, default, function(n) Settings[key] = n; saveSettings(); onChange(n) end)
-	task.spawn(onChange, default)
+	mkNumBox(row, -78, default, onChange, lo, key)
 end
 
--- два поля: от (min) и до (max)
 local function addRangeRow(page, text, defMin, defMax, onChange)
-	local key = makeKey(text)
-	if Settings[key] then defMin, defMax = Settings[key][1], Settings[key][2] end
+	local key = Persist.key(page.Name, text)
 	local row = Instance.new("Frame", page)
 	row.Size = UDim2.new(1,-6,0,36); row.BackgroundColor3 = PANEL; row.ZIndex = 5; corner(row, 8)
 	local l = lbl(row, text, 13); l.Position = UDim2.new(0,12,0,0)
@@ -1751,32 +1584,27 @@ local function addRangeRow(page, text, defMin, defMax, onChange)
 	local function commit()
 		local a, b = mn, mx
 		if a > b then a, b = b, a end
-		Settings[key] = {a, b}; saveSettings()
 		onChange(a, b)
 	end
-	mkNumBox(row, -150, defMin, function(n) mn = n; commit() end)
+	mkNumBox(row, -150, defMin, function(n) mn = n; commit() end, 0, key .. "/min")
 	local dash = lbl(row, "-", 14, Enum.Font.GothamBold, ACCENT)
 	dash.Size = UDim2.new(0,12,1,0); dash.Position = UDim2.new(1,-80,0,0)
 	dash.TextXAlignment = Enum.TextXAlignment.Center; dash.ZIndex = 6
-	mkNumBox(row, -72, defMax, function(n) mx = n; commit() end)
-	task.spawn(onChange, defMin, defMax)
+	mkNumBox(row, -72, defMax, function(n) mx = n; commit() end, 0, key .. "/max")
 end
 
--- ════════ MAIN: Normal Speed + Anti Ragdoll ════════
--- ════════ COMBAT: Wallhop (Spam Jump) / Wallhop (A-D) ════════
 local Move = {
 	normalOn = false, normal = 60,
-	mode = nil,                       -- nil / "spam" / "ad"
+	mode = nil,
 	spam = { min = 16, max = 60 },
 	ad   = { min = 16, max = 60 },
-	arBoost = false,                  -- true, пока Anti Ragdoll V1 разгоняет выход из рэгдолла
+	arBoost = false,
 }
 
 addToggle(mainTab, "Normal Speed", false, function(on) Move.normalOn = on end)
 addNumberRow(mainTab, "Normal Speed value", 60, function(n) Move.normal = n end)
 
 do
-	-- кнопка прыжка на телефоне: запоминаем само касание и проверяем его состояние
 	local jumpTouch = nil
 	task.spawn(function()
 		local tg = lp:WaitForChild("PlayerGui"):WaitForChild("TouchGui", 20)
@@ -1788,7 +1616,6 @@ do
 		end)
 	end)
 
-	-- ввод движения (стик на телефоне / WASD / геймпад): X < 0 влево, X > 0 вправо
 	local controls
 	task.spawn(function()
 		local pm = lp:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule", 20)
@@ -1832,14 +1659,10 @@ do
 		if Move.mode then
 			local cfg = (Move.mode == "spam") and Move.spam or Move.ad
 			local mn, mx = cfg.min, cfg.max
-			-- стоишь на месте (нет ввода движения) или не держишь прыжок -> скорость сразу сбрасывается
 			if jumpHeld() and moveVec().Magnitude >= 0.1 then
 				if Move.mode == "spam" then
-					-- держишь прыжок -> плавно разгоняешься от min до max (~1 сек)
 					wh.speed = math.min(mx, math.max(wh.speed, mn) + (mx - mn) * dt)
 				else
-					-- A-D: каждая смена A <-> D даёт прирост скорости, без смен скорость падает
-					-- влево/вправо по вводу (стик или A/D), порог чтобы не ловить дрожание стика
 					local x = moveVec().X
 					local dir = (x < -0.35) and "A" or ((x > 0.35) and "D" or nil)
 					if dir and dir ~= wh.lastDir then
@@ -1868,7 +1691,6 @@ do
 		end
 	end)
 
-	-- A-D режим: пока держишь прыжок и двигаешь влево/вправо (стик или A/D), персонаж всё равно идёт ПРЯМО вперёд (как в бхопе)
 	RunService:BindToRenderStep("VisionWallhopForward", Enum.RenderPriority.Last.Value, function()
 		if Move.mode ~= "ad" or Move.arBoost or not jumpHeld() then return end
 		local char = lp.Character
@@ -1905,144 +1727,6 @@ do
 	end)
 end
 
--- ════════ KILL SOUND (звук при убийстве ножом/ганом, с превью) ════════
-local killSoundPopup = Instance.new("Frame", main)
-killSoundPopup.Size = UDim2.new(1,-16,1,-48); killSoundPopup.Position = UDim2.new(0,8,0,42)
-killSoundPopup.BackgroundColor3 = BG; killSoundPopup.BackgroundTransparency = 0.02
-killSoundPopup.Visible = false; killSoundPopup.ZIndex = 10
-corner(killSoundPopup, 10); mkStroke(killSoundPopup, ACCENT, 0.45)
-
-do
-	local KILL_SOUNDS = {
-		{ "Sound 1", 91974992998097 },
-		{ "Sound 2", 84501524914411 },
-		{ "Sound 3", 137872121375273 },
-		{ "Sound 4", 120295278050351 },
-	}
-	local killSoundOn, killSoundId = false, KILL_SOUNDS[1][2]
-	local previewSound
-
-	local headLbl = lbl(killSoundPopup, "Kill Sound", 15, Enum.Font.GothamBold, ACCENT)
-	headLbl.Position = UDim2.new(0,12,0,7); headLbl.Size = UDim2.new(1,-70,0,24); headLbl.ZIndex = 11
-
-	local closeBtn = Instance.new("TextButton", killSoundPopup)
-	closeBtn.Size = UDim2.new(0,52,0,24); closeBtn.Position = UDim2.new(1,-56,0,7)
-	closeBtn.BackgroundColor3 = PANEL; closeBtn.Text = "Back"; closeBtn.TextColor3 = Color3.new(1,1,1)
-	closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 12; closeBtn.AutoButtonColor = false; closeBtn.ZIndex = 11
-	corner(closeBtn, 6)
-	closeBtn.MouseButton1Click:Connect(function() killSoundPopup.Visible = false end)
-
-	local list = Instance.new("ScrollingFrame", killSoundPopup)
-	list.Size = UDim2.new(1,-12,1,-96); list.Position = UDim2.new(0,6,0,36)
-	list.BackgroundTransparency = 1; list.BorderSizePixel = 0
-	list.ScrollBarThickness = 3; list.ScrollBarImageColor3 = ACCENT
-	list.AutomaticCanvasSize = Enum.AutomaticSize.Y; list.CanvasSize = UDim2.new()
-	list.ZIndex = 11
-	local ll = Instance.new("UIListLayout", list); ll.Padding = UDim.new(0,6)
-
-	local rows = {}
-	local function selectSound(id, row)
-		killSoundId = id
-		for _, r in pairs(rows) do r.stroke.Transparency = 0.75 end
-		if row then row.stroke.Transparency = 0 end
-	end
-
-	local function playPreview(id)
-		if previewSound then pcall(function() previewSound:Stop(); previewSound:Destroy() end) end
-		previewSound = Instance.new("Sound")
-		previewSound.SoundId = "rbxassetid://" .. id
-		previewSound.Volume = 1
-		previewSound.Parent = workspace
-		previewSound:Play()
-		game:GetService("Debris"):AddItem(previewSound, 6)
-	end
-
-	local function addSoundRow(name, id)
-		local row = Instance.new("Frame", list)
-		row.Size = UDim2.new(1,-6,0,40); row.BackgroundColor3 = PANEL; row.ZIndex = 12; corner(row, 8)
-		local stroke = mkStroke(row, ACCENT, 0.75, 1.5)
-		local l = lbl(row, name, 13); l.Position = UDim2.new(0,12,0,0); l.Size = UDim2.new(1,-150,1,0); l.ZIndex = 12
-
-		local playBtn = Instance.new("TextButton", row)
-		playBtn.Size = UDim2.new(0,36,0,28); playBtn.Position = UDim2.new(1,-120,0.5,-14)
-		playBtn.BackgroundColor3 = Color3.fromRGB(40,41,58); playBtn.Text = "▶"
-		playBtn.TextColor3 = Color3.new(1,1,1); playBtn.Font = Enum.Font.GothamBold; playBtn.TextSize = 14
-		playBtn.AutoButtonColor = false; playBtn.ZIndex = 12; corner(playBtn, 6)
-		playBtn.MouseButton1Click:Connect(function() playPreview(id) end)
-
-		local useBtn = Instance.new("TextButton", row)
-		useBtn.Size = UDim2.new(0,70,0,28); useBtn.Position = UDim2.new(1,-78,0.5,-14)
-		useBtn.BackgroundColor3 = ACCENT; useBtn.Text = "Select"
-		useBtn.TextColor3 = Color3.new(0,0,0); useBtn.Font = Enum.Font.GothamBold; useBtn.TextSize = 12
-		useBtn.AutoButtonColor = false; useBtn.ZIndex = 12; corner(useBtn, 6)
-		local entry = { stroke = stroke }
-		useBtn.MouseButton1Click:Connect(function() selectSound(id, entry) end)
-
-		rows[id] = entry
-		return entry
-	end
-
-	for _, s in ipairs(KILL_SOUNDS) do addSoundRow(s[1], s[2]) end
-	selectSound(KILL_SOUNDS[1][2], rows[KILL_SOUNDS[1][2]])
-
-	-- добавить свой звук по ID
-	local box = Instance.new("TextBox", killSoundPopup)
-	box.Size = UDim2.new(1,-96,0,30); box.Position = UDim2.new(0,8,1,-38)
-	box.BackgroundColor3 = Color3.fromRGB(40,41,58); box.Text = ""
-	box.PlaceholderText = "Custom sound asset ID"; box.TextColor3 = ACCENT
-	box.PlaceholderColor3 = Color3.fromRGB(130,130,150)
-	box.Font = Enum.Font.GothamBold; box.TextSize = 12
-	box.ClearTextOnFocus = false; box.ZIndex = 12; corner(box, 6); mkStroke(box, ACCENT, 0.6)
-
-	local addBtn = Instance.new("TextButton", killSoundPopup)
-	addBtn.Size = UDim2.new(0,76,0,30); addBtn.Position = UDim2.new(1,-84,1,-38)
-	addBtn.BackgroundColor3 = ACCENT; addBtn.Text = "Add"
-	addBtn.TextColor3 = Color3.new(0,0,0); addBtn.Font = Enum.Font.GothamBold
-	addBtn.TextSize = 13; addBtn.AutoButtonColor = false; addBtn.ZIndex = 12; corner(addBtn, 6)
-	addBtn.MouseButton1Click:Connect(function()
-		local id = tonumber(box.Text:match("%d+"))
-		if not id then toast("Enter a valid sound ID"); return end
-		local entry = addSoundRow("Custom " .. id, id)
-		selectSound(id, entry)
-		box.Text = ""
-	end)
-
-	addToggle(combatTab, "Kill Sound", false, function(v) killSoundOn = v end)
-	addNavRow(combatTab, "Kill Sound List", "›", function() killSoundPopup.Visible = true end)
-
-	-- детектор килла: нож/ган активирован -> если рядом гуманоид умер в течение ~2.5 сек -> звук
-	local lastAttack = { time = 0 }
-	local function hookWeapon(tool)
-		if not tool:IsA("Tool") then return end
-		local nm = tool.Name:lower()
-		if not (nm:find("knife",1,true) or nm:find("gun",1,true) or nm:find("revolver",1,true)) then return end
-		tool.Activated:Connect(function() lastAttack.time = tick() end)
-	end
-	local function hookContainer(container)
-		if not container then return end
-		for _, c in ipairs(container:GetChildren()) do hookWeapon(c) end
-		container.ChildAdded:Connect(hookWeapon)
-	end
-	task.spawn(function() hookContainer(lp:FindFirstChildOfClass("Backpack") or lp:WaitForChild("Backpack")) end)
-	lp.CharacterAdded:Connect(hookContainer)
-	if lp.Character then hookContainer(lp.Character) end
-
-	Players.PlayerAdded:Connect(function(plr)
-		plr.CharacterAdded:Connect(function(char)
-			local hum = char:WaitForChild("Humanoid")
-			hum.Died:Connect(function()
-				if not killSoundOn then return end
-				if tick() - lastAttack.time > 2.5 then return end
-				local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-				local otherRoot = char:FindFirstChild("HumanoidRootPart")
-				if root and otherRoot and (root.Position - otherRoot.Position).Magnitude > 20 then return end
-				playPreview(killSoundId)
-			end)
-		end)
-	end)
-end
-
--- Anti Ragdoll (логика V1/V2 из DemonDuels)
 do
 	local BOOST_SPEED, DEFAULT_SPEED = 400, 16
 	local v1 = { active = false, boosting = false, conns = {} }
@@ -2140,21 +1824,486 @@ do
 	end)
 end
 
+do
+	local enabled, conn = false, nil
+	local function heal(hum)
+		local maxH = hum.MaxHealth
+		if maxH <= 0 or maxH == math.huge then maxH = 100 end
+		pcall(function() hum.Health = maxH end)
+	end
+	local function recover(hum)
+		pcall(function()
+			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+			hum:ChangeState(Enum.HumanoidStateType.Running)
+		end)
+	end
+	local function step()
+		local char = lp.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not hum or not root then return end
+		if hum.Health < hum.MaxHealth then heal(hum) end
+		local st = hum:GetState()
+		if st == Enum.HumanoidStateType.Physics or st == Enum.HumanoidStateType.Ragdoll
+		or st == Enum.HumanoidStateType.FallingDown or st == Enum.HumanoidStateType.Dead then
+			recover(hum)
+			heal(hum)
+			pcall(function() root.AssemblyAngularVelocity = Vector3.zero end)
+		end
+		if hum.Health <= 0 then
+			heal(hum)
+			recover(hum)
+			pcall(function()
+				root.CFrame = CFrame.new(root.Position + Vector3.new(0, 3, 0))
+				root.AssemblyLinearVelocity = Vector3.zero
+			end)
+		end
+	end
+	addToggle(mainTab, "Anti Die", false, function(on)
+		enabled = on
+		if conn then conn:Disconnect(); conn = nil end
+		if on then conn = RunService.Heartbeat:Connect(step) end
+	end)
+end
 
--- Misc
+do
+	local on, spinPct = false, 100
+	local lastAutoRotate = true
+	addToggle(combatTab, "Spin", false, function(v)
+		on = v
+		local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			if v then lastAutoRotate = hum.AutoRotate; hum.AutoRotate = false
+			else hum.AutoRotate = true end
+		end
+	end)
+	addNumberRow(combatTab, "Spin Speed (10-1000%)", 100, function(n) spinPct = n end, 10)
+	RunService.Heartbeat:Connect(function()
+		if not on then return end
+		local char = lp.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not hum or not root or hum.Health <= 0 then return end
+		if hum.AutoRotate then hum.AutoRotate = false end
+		local angle = math.sin(os.clock() * (spinPct / 100) * 6) * math.pi
+		root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, angle, 0)
+	end)
+end
+
+do
+	local mode, range = nil, 100
+	local setAll, setSheriff, setMurderer
+
+	local function isSheriff(p) return U.hasTool(p, "gun") or U.hasTool(p, "revolver") end
+	local function isMurderer(p) return U.hasTool(p, "knife") end
+
+	local function findTarget()
+		local char = lp.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then return nil end
+		local best, bestDist = nil, math.huge
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= lp and p.Character then
+				local hum = p.Character:FindFirstChildOfClass("Humanoid")
+				local head = p.Character:FindFirstChild("Head")
+				local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+				if hum and head and hrp and hum.Health > 0 then
+					local d = (hrp.Position - root.Position).Magnitude
+					if d <= range and d < bestDist then
+						local ok = mode == "all"
+							or (mode == "sheriff" and isSheriff(p))
+							or (mode == "murderer" and isMurderer(p))
+						if ok then best, bestDist = head, d end
+					end
+				end
+			end
+		end
+		return best
+	end
+
+	RunService:BindToRenderStep("VisionAimLock", Enum.RenderPriority.Camera.Value + 1, function()
+		if not mode then return end
+		local target = findTarget()
+		if target then
+			cam.CFrame = CFrame.lookAt(cam.CFrame.Position, target.Position)
+		end
+	end)
+
+	setAll = addToggle(combatTab, "Aim Lock (All)", false, function(on)
+		if on then
+			mode = "all"
+			if setSheriff then setSheriff(false) end
+			if setMurderer then setMurderer(false) end
+		elseif mode == "all" then mode = nil end
+	end)
+	setSheriff = addToggle(combatTab, "Aim Lock (Sheriff)", false, function(on)
+		if on then
+			mode = "sheriff"
+			if setAll then setAll(false) end
+			if setMurderer then setMurderer(false) end
+		elseif mode == "sheriff" then mode = nil end
+	end)
+	setMurderer = addToggle(combatTab, "Aim Lock (Murderer)", false, function(on)
+		if on then
+			mode = "murderer"
+			if setAll then setAll(false) end
+			if setSheriff then setSheriff(false) end
+		elseif mode == "murderer" then mode = nil end
+	end)
+	addNumberRow(combatTab, "Aim Lock Range (studs)", 100, function(n) range = n end)
+end
+
+do
+	local SOUNDS = {
+		{ "Sound 1", "91974992998097" },
+		{ "Sound 2", "84501524914411" },
+		{ "Sound 3", "137872121375273" },
+		{ "Sound 4", "120295278050351" },
+	}
+	local BUILTIN = #SOUNDS
+	local custom = Persist.get("killsound.custom")
+	if type(custom) ~= "table" then custom = {} end
+	for _, s in ipairs(custom) do
+		SOUNDS[#SOUNDS + 1] = { string.sub(s, 1, 22), s }
+	end
+
+	local state = { on = false, sel = 1, volume = 1 }
+	local savedSel = Persist.get("killsound.sel")
+	if type(savedSel) == "number" and SOUNDS[savedSel] then state.sel = savedSel end
+
+	local function resolve(src)
+		if src:match("^%d+$") then return "rbxassetid://" .. src end
+		if src:find("rbxassetid", 1, true) or src:find("http", 1, true) then return src end
+		if isfile and getcustomasset and isfile(src) then
+			local ok, res = pcall(getcustomasset, src)
+			if ok then return res end
+		end
+		return nil
+	end
+
+	local function play(src)
+		local id = resolve(src)
+		if not id then toast("Sound not found: " .. src); return end
+		local s = Instance.new("Sound")
+		s.SoundId = id
+		s.Volume = state.volume
+		s.Parent = game:GetService("SoundService")
+		s:Play()
+		s.Ended:Connect(function() s:Destroy() end)
+		task.delay(15, function() if s.Parent then s:Destroy() end end)
+	end
+
+	local popup = Instance.new("Frame", main)
+	popup.Size = UDim2.new(1,-16,1,-48); popup.Position = UDim2.new(0,8,0,42)
+	popup.BackgroundColor3 = BG; popup.BackgroundTransparency = 0.02
+	popup.Visible = false; popup.ZIndex = 10
+	corner(popup, 10); mkStroke(popup, ACCENT, 0.45)
+
+	local head = lbl(popup, "Kill Sound", 15, Enum.Font.GothamBold, ACCENT)
+	head.Position = UDim2.new(0,12,0,7); head.Size = UDim2.new(1,-90,0,24); head.ZIndex = 11
+	local back = Instance.new("TextButton", popup)
+	back.Size = UDim2.new(0,52,0,24); back.Position = UDim2.new(1,-60,0,7)
+	back.BackgroundColor3 = PANEL; back.Text = "Back"; back.TextColor3 = Color3.new(1,1,1)
+	back.Font = Enum.Font.GothamBold; back.TextSize = 12; back.AutoButtonColor = false; back.ZIndex = 11
+	corner(back, 6)
+	back.MouseButton1Click:Connect(function() popup.Visible = false end)
+
+	local list = Instance.new("ScrollingFrame", popup)
+	list.Size = UDim2.new(1,-12,1,-82); list.Position = UDim2.new(0,6,0,36)
+	list.BackgroundTransparency = 1; list.BorderSizePixel = 0
+	list.ScrollBarThickness = 3; list.ScrollBarImageColor3 = ACCENT
+	list.AutomaticCanvasSize = Enum.AutomaticSize.Y; list.CanvasSize = UDim2.new()
+	list.ZIndex = 11
+	local ll = Instance.new("UIListLayout", list); ll.Padding = UDim.new(0, 6)
+
+	local navRow, navLabel
+
+	local function refresh()
+		for _, c in ipairs(list:GetChildren()) do
+			if c:IsA("Frame") then c:Destroy() end
+		end
+		for i, snd in ipairs(SOUNDS) do
+			local row = Instance.new("Frame", list)
+			row.Size = UDim2.new(1,-6,0,34); row.BackgroundColor3 = Color3.fromRGB(30,31,44)
+			row.ZIndex = 12; corner(row, 8)
+			mkStroke(row, ACCENT, state.sel == i and 0 or 0.8, state.sel == i and 2 or 1)
+			local name = lbl(row, snd[1], 12, Enum.Font.GothamMedium)
+			name.Position = UDim2.new(0,10,0,0); name.Size = UDim2.new(1,-130,1,0); name.ZIndex = 13
+			name.TextTruncate = Enum.TextTruncate.AtEnd
+			local pv = Instance.new("TextButton", row)
+			pv.Size = UDim2.new(0,30,0,24); pv.Position = UDim2.new(1,-116,0.5,-12)
+			pv.BackgroundColor3 = Color3.fromRGB(40,41,58); pv.Text = "▶"
+			pv.TextColor3 = ACCENT; pv.Font = Enum.Font.GothamBold; pv.TextSize = 12
+			pv.AutoButtonColor = false; pv.ZIndex = 13; corner(pv, 6)
+			pv.MouseButton1Click:Connect(function() play(snd[2]) end)
+			local pick = Instance.new("TextButton", row)
+			pick.Size = UDim2.new(0,76,0,24); pick.Position = UDim2.new(1,-82,0.5,-12)
+			pick.BackgroundColor3 = state.sel == i and ACCENT or Color3.fromRGB(40,41,58)
+			pick.Text = state.sel == i and "Selected" or "Select"
+			pick.TextColor3 = state.sel == i and Color3.new(0,0,0) or Color3.new(1,1,1)
+			pick.Font = Enum.Font.GothamBold; pick.TextSize = 11
+			pick.AutoButtonColor = false; pick.ZIndex = 13; corner(pick, 6)
+			pick.MouseButton1Click:Connect(function()
+				state.sel = i
+				Persist.set("killsound.sel", i)
+				if navLabel then navLabel.Text = "Kill Sound: " .. SOUNDS[i][1] end
+				refresh()
+			end)
+		end
+	end
+
+	local box = Instance.new("TextBox", popup)
+	box.Size = UDim2.new(1,-96,0,30); box.Position = UDim2.new(0,8,1,-38)
+	box.BackgroundColor3 = Color3.fromRGB(40,41,58); box.Text = ""
+	box.PlaceholderText = "Asset ID or file name"; box.TextColor3 = ACCENT
+	box.PlaceholderColor3 = Color3.fromRGB(130,130,150)
+	box.Font = Enum.Font.GothamBold; box.TextSize = 12
+	box.ClearTextOnFocus = false; box.ZIndex = 12; corner(box, 6); mkStroke(box, ACCENT, 0.6)
+	local add = Instance.new("TextButton", popup)
+	add.Size = UDim2.new(0,76,0,30); add.Position = UDim2.new(1,-84,1,-38)
+	add.BackgroundColor3 = ACCENT; add.Text = "Add"
+	add.TextColor3 = Color3.new(0,0,0); add.Font = Enum.Font.GothamBold
+	add.TextSize = 13; add.AutoButtonColor = false; add.ZIndex = 12; corner(add, 6)
+	add.MouseButton1Click:Connect(function()
+		local text = box.Text:gsub("^%s+", ""):gsub("%s+$", "")
+		if text == "" then return end
+		local id = text:match("^%d+$") or text:match("rbxassetid://(%d+)") or text:match("/library/(%d+)") or text:match("/catalog/(%d+)")
+		local src = id or text
+		if not resolve(src) then toast("Not an ID and no such file: " .. text); return end
+		SOUNDS[#SOUNDS + 1] = { string.sub(src, 1, 22), src }
+		custom[#custom + 1] = src
+		Persist.set("killsound.custom", custom)
+		box.Text = ""
+		refresh()
+	end)
+
+	refresh()
+
+	addToggle(combatTab, "Kill Sound", false, function(on) state.on = on end)
+	navRow, navLabel = addNavRow(combatTab, "Kill Sound: " .. SOUNDS[state.sel][1], "›", function()
+		popup.Visible = true
+		refresh()
+	end)
+	addSlider(combatTab, "Kill Sound Volume", 1, 100, 100, function(v) state.volume = v / 100 end, true)
+
+	local lastAttack = 0
+	U.activated[#U.activated + 1] = function(tool)
+		local n = tool.Name:lower()
+		if n:find("knife", 1, true) or n:find("gun", 1, true) or n:find("revolver", 1, true) then
+			lastAttack = os.clock()
+		end
+	end
+
+	local function watch(p)
+		local function hook(char)
+			local hum = char:WaitForChild("Humanoid", 10)
+			if not hum then return end
+			hum.Died:Connect(function()
+				if state.on and os.clock() - lastAttack < 1.6 then
+					play(SOUNDS[state.sel][2])
+				end
+			end)
+		end
+		if p.Character then task.spawn(hook, p.Character) end
+		p.CharacterAdded:Connect(hook)
+	end
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= lp then watch(p) end
+	end
+	Players.PlayerAdded:Connect(function(p)
+		if p ~= lp then watch(p) end
+	end)
+end
+
+do
+	local on = false
+	addToggle(visTab, "Bullet Trace", false, function(v) on = v end)
+	U.activated[#U.activated + 1] = function(tool)
+		if not on then return end
+		local n = tool.Name:lower()
+		if not (n:find("gun", 1, true) or n:find("revolver", 1, true)) then return end
+		local char = lp.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+		local handle = tool:FindFirstChild("Handle")
+		local origin = handle and handle.Position or root.Position
+		local loc = UIS:GetMouseLocation()
+		local ray = cam:ViewportPointToRay(loc.X, loc.Y)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { char }
+		local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+		local target = res and res.Position or (ray.Origin + ray.Direction * 1000)
+		local dist = (target - origin).Magnitude
+		if dist < 0.5 then return end
+		local line = Instance.new("Part")
+		line.Anchored = true; line.CanCollide = false; line.CanTouch = false; line.CanQuery = false
+		line.Material = Enum.Material.Neon; line.Color = Color3.new(1, 1, 1)
+		line.Size = Vector3.new(0.14, 0.14, dist)
+		line.CFrame = CFrame.lookAt(origin, target) * CFrame.new(0, 0, -dist / 2)
+		line.Parent = workspace
+		task.delay(0.9, function()
+			if line.Parent then
+				TweenSvc:Create(line, TweenInfo.new(0.3), { Transparency = 1 }):Play()
+			end
+		end)
+		task.delay(1.2, function() line:Destroy() end)
+	end
+end
+
+do
+	local SIZES = { Small = { 0.9, 0.55 }, Medium = { 1.3, 0.8 }, Large = { 1.8, 1.1 } }
+	local names = { "Small", "Medium", "Large" }
+	local on, sizeName = false, "Medium"
+	local cone = nil
+
+	local function destroy()
+		if cone then cone:Destroy(); cone = nil end
+	end
+	local function build()
+		destroy()
+		if not on then return end
+		local head = lp.Character and lp.Character:FindFirstChild("Head")
+		if not head then return end
+		local s = SIZES[sizeName]
+		cone = Instance.new("ConeHandleAdornment")
+		cone.Adornee = head
+		cone.Radius = s[1]
+		cone.Height = s[2]
+		cone.CFrame = CFrame.new(0, head.Size.Y / 2 + 0.05, 0) * CFrame.Angles(-math.pi / 2, 0, 0)
+		cone.Color3 = Color3.fromRGB(255, 225, 150)
+		cone.Transparency = 0
+		cone.ZIndex = 1
+		cone.Parent = cam
+	end
+
+	addToggle(visTab, "China Hat", false, function(v) on = v; build() end)
+	addSelector(visTab, "China Hat Size", names, function(name) sizeName = name; build() end)
+	lp.CharacterAdded:Connect(function()
+		task.wait(0.6)
+		build()
+	end)
+end
+
+do
+	local on = false
+	local conn = nil
+
+	local function ring(root, hum)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { lp.Character }
+		local res = workspace:Raycast(root.Position, Vector3.new(0, -12, 0), params)
+		local pos = res and (res.Position + Vector3.new(0, 0.08, 0))
+			or (root.Position - Vector3.new(0, hum.HipHeight + root.Size.Y / 2 - 0.1, 0))
+		local disc = Instance.new("Part")
+		disc.Shape = Enum.PartType.Cylinder
+		disc.Anchored = true; disc.CanCollide = false; disc.CanTouch = false; disc.CanQuery = false
+		disc.Material = Enum.Material.Neon; disc.Color = ACCENT
+		disc.Transparency = 0.35
+		disc.Size = Vector3.new(0.12, 1.5, 1.5)
+		disc.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.pi / 2)
+		disc.Parent = workspace
+		local tw = TweenSvc:Create(disc, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = Vector3.new(0.12, 9, 9),
+			Transparency = 1,
+		})
+		tw:Play()
+		tw.Completed:Connect(function() disc:Destroy() end)
+	end
+
+	local function hook(char)
+		if conn then conn:Disconnect(); conn = nil end
+		local hum = char:WaitForChild("Humanoid", 10)
+		local root = char:WaitForChild("HumanoidRootPart", 10)
+		if not hum or not root then return end
+		conn = hum.StateChanged:Connect(function(_, new)
+			if on and new == Enum.HumanoidStateType.Jumping then ring(root, hum) end
+		end)
+	end
+
+	addToggle(visTab, "Jump Circle", false, function(v) on = v end)
+	if lp.Character then task.spawn(hook, lp.Character) end
+	lp.CharacterAdded:Connect(hook)
+end
+
+do
+	local COLORS = {
+		{ "Off", nil },
+		{ "Red", Color3.fromRGB(255, 50, 50) },
+		{ "Blue", Color3.fromRGB(70, 130, 255) },
+		{ "Green", Color3.fromRGB(60, 230, 120) },
+		{ "Pink", Color3.fromRGB(255, 105, 180) },
+		{ "Orange", Color3.fromRGB(255, 150, 50) },
+		{ "Cyan", Color3.fromRGB(0, 220, 255) },
+		{ "Yellow", Color3.fromRGB(255, 225, 60) },
+		{ "Purple", Color3.fromRGB(190, 120, 255) },
+		{ "White", Color3.fromRGB(255, 255, 255) },
+		{ "Black", Color3.fromRGB(10, 10, 10) },
+		{ "Rainbow", "rainbow" },
+	}
+	local names = {}
+	for _, c in ipairs(COLORS) do names[#names + 1] = c[1] end
+	local current = 1
+	local trail, a0, a1 = nil, nil, nil
+
+	local function clear()
+		if trail then trail:Destroy(); trail = nil end
+		if a0 then a0:Destroy(); a0 = nil end
+		if a1 then a1:Destroy(); a1 = nil end
+	end
+
+	local function build()
+		clear()
+		local def = COLORS[current]
+		if not def or not def[2] then return end
+		local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+		a0 = Instance.new("Attachment", root); a0.Position = Vector3.new(0, 0.7, 0)
+		a1 = Instance.new("Attachment", root); a1.Position = Vector3.new(0, -0.7, 0)
+		trail = Instance.new("Trail")
+		trail.Attachment0 = a0; trail.Attachment1 = a1
+		trail.Lifetime = 1.2
+		trail.LightEmission = 1
+		trail.FaceCamera = true
+		trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+		trail.WidthScale = NumberSequence.new(1)
+		if def[2] == "rainbow" then
+			trail.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+				ColorSequenceKeypoint.new(0.2, Color3.fromRGB(255, 255, 0)),
+				ColorSequenceKeypoint.new(0.4, Color3.fromRGB(0, 255, 0)),
+				ColorSequenceKeypoint.new(0.6, Color3.fromRGB(0, 255, 255)),
+				ColorSequenceKeypoint.new(0.8, Color3.fromRGB(0, 0, 255)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 255)),
+			})
+		else
+			trail.Color = ColorSequence.new(def[2])
+		end
+		trail.Parent = root
+	end
+
+	addSelector(visTab, "Traits (Trail Color)", names, function(_, idx)
+		current = idx
+		build()
+	end)
+	lp.CharacterAdded:Connect(function()
+		task.wait(0.6)
+		build()
+	end)
+end
+
 local miscTab = newTab("Misc")
 addToggle(miscTab, "Show UI On Execute", true)
 
--- Copy Job ID
 addNavRow(miscTab, "Copy Job ID", "⧉", function()
 	local id = game.JobId
-	if id == "" then toast("JobId пустой (Studio / приватный сервер)"); return end
+	if id == "" then toast("JobId is empty (Studio / private server)"); return end
 	local ok = pcall(function() setclipboard(id) end)
 	if not ok then ok = pcall(function() toclipboard(id) end) end
-	if ok then toast("Job ID скопирован") else toast("Нет доступа к буферу: " .. id) end
+	if ok then toast("Job ID copied") else toast("Clipboard unavailable: " .. id) end
 end)
 
--- GUI Size
 do
 	local row = Instance.new("Frame", miscTab)
 	row.Size = UDim2.new(1,-6,0,36); row.BackgroundColor3 = PANEL; row.ZIndex = 5; corner(row, 8)
@@ -2171,10 +2320,16 @@ do
 		if not n then box.Text = tostring(math.floor(mainScale.Scale*100+0.5)); return end
 		n = math.clamp(n, 50, 200); box.Text = tostring(n)
 		mainScale.Scale = n/100; syncBG()
+		Persist.set("gui.scale", n)
 	end)
+	local savedScale = Persist.get("gui.scale")
+	if type(savedScale) == "number" then
+		box.Text = tostring(savedScale)
+		mainScale.Scale = savedScale / 100
+		syncBG()
+	end
 end
 
--- Backgrounds — все 18 штук
 local BACKGROUNDS = {
 	"rbxassetid://101894744159774",
 	"rbxassetid://136208130767349",
@@ -2193,6 +2348,10 @@ local BACKGROUNDS = {
 	"rbxassetid://98214837857183",
 	"rbxassetid://126860692354524",
 	"rbxassetid://87472506396981",
+	"rbxassetid://77599245856089",
+	"rbxassetid://128085595627413",
+	"rbxassetid://120663379122080",
+	"rbxassetid://71944223395764",
 	"rbxassetid://77785523954153",
 	"rbxassetid://122815453745063",
 	"rbxassetid://77581705786454",
@@ -2204,10 +2363,6 @@ local BACKGROUNDS = {
 	"rbxassetid://118783198922289",
 	"rbxassetid://101833990704596",
 	"rbxassetid://109527418380162",
-	"rbxassetid://77599245856089",
-	"rbxassetid://128085595627413",
-	"rbxassetid://120663379122080",
-	"rbxassetid://71944223395764",
 }
 
 local bgPopup = Instance.new("Frame", main)
@@ -2248,6 +2403,7 @@ do
 			if s then s.Transparency = 0.75; s.Thickness = 1 end
 		end
 		bgImage.Image = id or ""
+		Persist.set("bg.image", id or "")
 		selectedBtn = btn
 		if btn then
 			local s = btn:FindFirstChildOfClass("UIStroke")
@@ -2256,13 +2412,21 @@ do
 	end
 	noneBtn.MouseButton1Click:Connect(function() pick(nil, "") end)
 
+	local bgButtons = {}
 	for i, id in ipairs(BACKGROUNDS) do
 		local b = Instance.new("ImageButton", grid)
+		bgButtons[i] = b
 		b.Name = "BG"..i; b.BackgroundColor3 = Color3.fromRGB(30,31,44)
 		b.Image = id; b.ScaleType = Enum.ScaleType.Crop
 		b.AutoButtonColor = false; b.ZIndex = 12
 		corner(b, 8); mkStroke(b, ACCENT, 0.75)
 		b.MouseButton1Click:Connect(function() pick(b, id) end)
+	end
+	local savedBg = Persist.get("bg.image")
+	if type(savedBg) == "string" and savedBg ~= "" then
+		for i, id in ipairs(BACKGROUNDS) do
+			if id == savedBg then pick(bgButtons[i], id) end
+		end
 	end
 
 	task.spawn(function()
@@ -2270,7 +2434,6 @@ do
 	end)
 end
 
--- кнопка Background в Misc
 addNavRow(miscTab, "Background", "›", function() bgPopup.Visible = true end)
 
 syncBG()
