@@ -340,7 +340,8 @@ tabBar.Position = UDim2.new(0, 10, 0, 40)
 tabBar.BackgroundTransparency = 1; tabBar.ZIndex = 3
 local tabLayout = Instance.new("UIListLayout", tabBar)
 tabLayout.FillDirection = Enum.FillDirection.Horizontal
-tabLayout.Padding = UDim.new(0, 6)
+tabLayout.Padding = UDim.new(0, 4)
+tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
 local contentFrame = Instance.new("Frame", main)
 contentFrame.Size = UDim2.new(1, -20, 1, -84)
@@ -405,8 +406,11 @@ end
 
 local function newTab(name)
 	local b = Instance.new("TextButton", tabBar)
-	b.Size = UDim2.new(0, 76, 1, 0); b.BackgroundColor3 = PANEL
-	b.Text = name; b.TextSize = 12; b.Font = Enum.Font.GothamBold
+	local orderN = 1
+	for _ in pairs(tabButtons) do orderN = orderN + 1 end
+	b.LayoutOrder = orderN
+	b.Size = UDim2.new(0, 63, 1, 0); b.BackgroundColor3 = PANEL
+	b.Text = name; b.TextSize = 11; b.Font = Enum.Font.GothamBold
 	b.TextColor3 = Color3.new(1,1,1); b.AutoButtonColor = false; b.ZIndex = 4
 	corner(b, 8)
 	local page = Instance.new("ScrollingFrame", contentFrame)
@@ -555,6 +559,8 @@ end
 
 local mainTab = newTab("Main")
 local combatTab = newTab("Combat")
+local sheriffTab = newTab("Sheriff")
+local murdererTab = newTab("Murderer")
 
 local visTab = newTab("Visuals")
 local espOn, tracersOn = false, false
@@ -1139,6 +1145,7 @@ local AVATARS = {
 	{ "OUTFIT 4", { 18902416696, 17739456422, 116750288839357, 12842417046, 122223069519702 } },
 	{ "OUTFIT 5", { 13935333090, 16110951997, 10632503818 } },
 	{ "OUTFIT 6", { 74891470, 4390891467, 91274263831244, 128424248603010, 91151766440767, 17044638424 } },
+	{ "NEW SKIN", { 70414871864071, 14863917259, 133498027006138, 82277826177074 } },
 	{ "DEMON",    { 76479271580913, 1402432199, 140627490971265, 128912609563885, 17449551560, 5796531729, 139607718 } },
 }
 local OUTFITS_SIMPLE = {
@@ -2066,18 +2073,112 @@ do
 	end
 end
 
+local function addKeybindRow(page, text, default, onChange)
+	local key = Persist.key(page.Name, text)
+	local row = Instance.new("Frame", page)
+	row.Size = UDim2.new(1,-6,0,36); row.BackgroundColor3 = PANEL; row.ZIndex = 5; corner(row, 8)
+	local l = lbl(row, text, 13); l.Position = UDim2.new(0,12,0,0)
+	l.Size = UDim2.new(1,-130,1,0); l.ZIndex = 5
+	local btn = Instance.new("TextButton", row)
+	btn.Size = UDim2.new(0,100,0,24); btn.Position = UDim2.new(1,-110,0.5,-12)
+	btn.BackgroundColor3 = Color3.fromRGB(40,41,58); btn.TextColor3 = ACCENT
+	btn.Font = Enum.Font.GothamBold; btn.TextSize = 12; btn.AutoButtonColor = false; btn.ZIndex = 6
+	corner(btn, 6); mkStroke(btn, ACCENT, 0.6)
+	local current = Persist.get(key)
+	local valid = type(current) == "string" and pcall(function() return Enum.KeyCode[current] end)
+	if not valid then current = default end
+	local listening = false
+	local function setKey(name)
+		btn.Text = name
+		Persist.set(key, name)
+		onChange(Enum.KeyCode[name])
+	end
+	btn.MouseButton1Click:Connect(function()
+		listening = true
+		btn.Text = "Press a key..."
+	end)
+	UIS.InputBegan:Connect(function(i)
+		if listening and i.UserInputType == Enum.UserInputType.Keyboard then
+			listening = false
+			setKey(i.KeyCode.Name)
+		end
+	end)
+	setKey(current)
+end
+
+local function mkFloat(text, yOff)
+	local b = Instance.new("TextButton", gui)
+	b.Size = UDim2.fromOffset(78, 78); b.Position = UDim2.new(1, -100, 0.5, yOff)
+	b.BackgroundColor3 = BG; b.BackgroundTransparency = 0.15
+	b.Text = text; b.TextColor3 = ACCENT; b.Font = Enum.Font.GothamBold; b.TextSize = 14
+	b.AutoButtonColor = false; b.Visible = false; b.ZIndex = 50
+	corner(b, 39); mkStroke(b, ACCENT, 0.2, 2)
+	return b
+end
+
+do
+	local autoOn, drop, busy, lastTry = false, nil, false, 0
+	workspace.DescendantAdded:Connect(function(d)
+		if d.Name == "GunDrop" then drop = d end
+	end)
+	task.spawn(function()
+		pcall(function()
+			local d = workspace:FindFirstChild("GunDrop", true)
+			if d then drop = d end
+		end)
+	end)
+	local function dropPart()
+		if not drop or not drop.Parent then return nil end
+		if drop:IsA("BasePart") then return drop end
+		return drop:FindFirstChildWhichIsA("BasePart", true)
+	end
+	task.spawn(function()
+		while gui.Parent do
+			task.wait(0.2)
+			if autoOn and not busy and os.clock() - lastTry > 1 then
+				local part = dropPart()
+				local char = lp.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if part and hum and root and hum.Health > 0
+				and not U.hasTool(lp, "knife") and not U.hasTool(lp, "gun") then
+					busy = true; lastTry = os.clock()
+					if firetouchinterest then
+						pcall(firetouchinterest, root, part, 0)
+						pcall(firetouchinterest, root, part, 1)
+					end
+					task.wait(0.2)
+					if not U.hasTool(lp, "gun") and part.Parent and root.Parent then
+						local back = root.CFrame
+						root.CFrame = part.CFrame
+						task.wait(0.25)
+						if root.Parent then
+							root.CFrame = back
+							root.AssemblyLinearVelocity = Vector3.zero
+						end
+					end
+					busy = false
+				end
+			end
+		end
+	end)
+	addToggle(sheriffTab, "Auto Pickup Gun", false, function(v) autoOn = v end)
+end
+
 do
 	local mode = nil
 	local setLegit, setWall
 	local lastShot = 0
 	local freed = {}
+	local aim = {}
+	U.aim = aim
 
 	local function isGun(tool)
 		local n = tool.Name:lower()
 		return n:find("gun", 1, true) ~= nil or n:find("revolver", 1, true) ~= nil
 	end
 
-	local function gunOf(char, hum)
+	function aim.gunOf(char, hum)
 		for _, c in ipairs(char:GetChildren()) do
 			if c:IsA("Tool") and isGun(c) then return c end
 		end
@@ -2093,7 +2194,7 @@ do
 		return nil
 	end
 
-	local function findMurderer(through)
+	function aim.findMurderer(through)
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
 		params.FilterDescendantsInstances = { lp.Character }
@@ -2115,7 +2216,7 @@ do
 		return nil
 	end
 
-	local function openPath(from, to, targetChar)
+	function aim.openPath(from, to, targetChar)
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
 		local ignore = { lp.Character }
@@ -2132,12 +2233,43 @@ do
 		end
 	end
 
-	local function aimAt(head)
-		cam.CFrame = CFrame.lookAt(cam.CFrame.Position, head.Position)
+	function aim.releaseLater()
+		task.delay(0.4, function()
+			for _, inst in ipairs(freed) do
+				pcall(function() inst.CanQuery = true end)
+			end
+			freed = {}
+		end)
+	end
+
+	function aim.predict(head, tchar, pct)
+		local root = tchar and tchar:FindFirstChild("HumanoidRootPart")
+		if not root then return head.Position end
+		local dist = (head.Position - cam.CFrame.Position).Magnitude
+		local v = root.AssemblyLinearVelocity
+		local t = (dist / 140) * (pct / 100)
+		return head.Position + Vector3.new(v.X, v.Y * 0.3, v.Z) * t
+	end
+
+	function aim.aimAt(pos)
+		cam.CFrame = CFrame.lookAt(cam.CFrame.Position, pos)
 		if mousemoveabs then
-			local v = cam:WorldToScreenPoint(head.Position)
+			local v = cam:WorldToScreenPoint(pos)
 			pcall(mousemoveabs, v.X, v.Y)
 		end
+	end
+
+	function aim.fire(gun, head, tchar, pct, ignoreWalls)
+		local pos = aim.predict(head, tchar, pct)
+		aim.aimAt(pos)
+		if ignoreWalls then
+			local handle = gun:FindFirstChild("Handle")
+			local origin = handle and handle.Position or cam.CFrame.Position
+			aim.openPath(cam.CFrame.Position, pos, tchar)
+			aim.openPath(origin, pos, tchar)
+		end
+		pcall(function() gun:Activate() end)
+		aim.releaseLater()
 	end
 
 	RunService.Heartbeat:Connect(function()
@@ -2146,43 +2278,66 @@ do
 		local char = lp.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		if not hum or hum.Health <= 0 then return end
-		local gun = gunOf(char, hum)
+		local gun = aim.gunOf(char, hum)
 		if not gun then return end
-		local head, tchar = findMurderer(mode == "wall")
+		local head, tchar = aim.findMurderer(mode == "wall")
 		if not head then return end
 		lastShot = os.clock()
-		aimAt(head)
-		if mode == "wall" then
-			local origin = (gun:FindFirstChild("Handle") and gun.Handle.Position) or cam.CFrame.Position
-			openPath(cam.CFrame.Position, head.Position, tchar)
-			openPath(origin, head.Position, tchar)
-		end
-		pcall(function() gun:Activate() end)
-		task.delay(0.4, function()
-			for _, inst in ipairs(freed) do
-				pcall(function() inst.CanQuery = true end)
-			end
-			freed = {}
-		end)
+		aim.fire(gun, head, tchar, 100, mode == "wall")
 	end)
 
-	setLegit = addToggle(combatTab, "Aim Legit (Auto Shoot Murderer)", false, function(on)
+	setLegit = addToggle(sheriffTab, "Aim Legit (Auto Shoot Murderer)", false, function(on)
 		if on then
 			mode = "legit"
 			if setWall then setWall(false) end
 		elseif mode == "legit" then mode = nil end
 	end)
-	setWall = addToggle(combatTab, "Aim Through Wall (Auto Shoot)", false, function(on)
+	setWall = addToggle(sheriffTab, "Aim Through Wall (Auto Shoot)", false, function(on)
 		if on then
 			mode = "wall"
 			if setLegit then setLegit(false) end
 		elseif mode == "wall" then mode = nil end
 	end)
+
+	local sbOn, sbKey, sbPct, sbWall = false, Enum.KeyCode.G, 100, false
+	local shootBtn = mkFloat("SHOOT", -50)
+
+	local function shootNow()
+		if not sbOn then return end
+		local char = lp.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then return end
+		local gun = aim.gunOf(char, hum)
+		if not gun then
+			task.wait(0.25)
+			gun = aim.gunOf(char, hum)
+		end
+		if not gun then toast("No gun"); return end
+		local head, tchar = aim.findMurderer(sbWall)
+		if not head then toast("Murderer not found"); return end
+		aim.fire(gun, head, tchar, sbPct, sbWall)
+	end
+
+	shootBtn.MouseButton1Click:Connect(function() task.spawn(shootNow) end)
+
+	local _, sbRow = addToggle(sheriffTab, "Sheriff Aimbot", false, function(v)
+		sbOn = v
+		shootBtn.Visible = v
+	end)
+	local sbBox = addGroup(sheriffTab, sbRow)
+	addKeybindRow(sbBox, "Shoot Murderer Key", "G", function(k) sbKey = k end)
+	addSlider(sbBox, "Prediction (%)", 0, 200, 100, function(v) sbPct = v end, true)
+	addToggle(sbBox, "Shoot Through Walls", false, function(v) sbWall = v end)
+
+	UIS.InputBegan:Connect(function(i, gp)
+		if gp or not sbOn then return end
+		if i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode == sbKey then
+			task.spawn(shootNow)
+		end
+	end)
 end
 
 do
-	local busy = false
-
 	local function knifeOf(char, hum)
 		for _, c in ipairs(char:GetChildren()) do
 			if c:IsA("Tool") and c.Name:lower():find("knife", 1, true) then return c end
@@ -2200,7 +2355,66 @@ do
 		return nil
 	end
 
-	addNavRow(combatTab, "Kill All (Murderer)", "⚔", function()
+	local function touch(knife, part)
+		local handle = knife:FindFirstChild("Handle")
+		if firetouchinterest and handle then
+			pcall(firetouchinterest, part, handle, 0)
+			pcall(firetouchinterest, part, handle, 1)
+		end
+	end
+
+	local auraOn, range, auraBusy = false, 15, false
+	local _, auraRow = addToggle(murdererTab, "Kill Aura", false, function(v) auraOn = v end)
+	local auraBox = addGroup(murdererTab, auraRow)
+	addNumberRow(auraBox, "Kill Aura Range (studs)", 15, function(n) range = n end, 1)
+
+	task.spawn(function()
+		while gui.Parent do
+			task.wait(0.15)
+			if auraOn and not auraBusy then
+				local char = lp.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if hum and root and hum.Health > 0 then
+					auraBusy = true
+					local knife = knifeOf(char, hum)
+					if knife and root.Parent then
+						local best, bestDist = nil, range
+						for _, p in ipairs(Players:GetPlayers()) do
+							local c = p ~= lp and p.Character
+							local th = c and c:FindFirstChildOfClass("Humanoid")
+							local tr = c and c:FindFirstChild("HumanoidRootPart")
+							if th and tr and th.Health > 0 then
+								local d = (tr.Position - root.Position).Magnitude
+								if d <= bestDist then best, bestDist = tr, d end
+							end
+						end
+						if best then
+							local back = root.CFrame
+							local moved = bestDist > 4
+							if moved then
+								root.CFrame = CFrame.lookAt(best.Position - best.CFrame.LookVector * 2.2, best.Position)
+								root.AssemblyLinearVelocity = Vector3.zero
+							else
+								root.CFrame = CFrame.lookAt(root.Position, Vector3.new(best.Position.X, root.Position.Y, best.Position.Z))
+							end
+							touch(knife, best)
+							pcall(function() knife:Activate() end)
+							task.wait(0.12)
+							if moved and root.Parent then
+								root.CFrame = back
+								root.AssemblyLinearVelocity = Vector3.zero
+							end
+						end
+					end
+					auraBusy = false
+				end
+			end
+		end
+	end)
+
+	local busy = false
+	addNavRow(murdererTab, "Kill All", "⚔", function()
 		if busy then return end
 		local char = lp.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2220,17 +2434,13 @@ do
 			if #targets == 0 then toast("No targets"); busy = false; return end
 			local origin = root.CFrame
 			local step = math.clamp(1 / #targets, 0.05, 0.2)
-			local handle = knife:FindFirstChild("Handle")
 			for _, t in ipairs(targets) do
 				if hum.Health <= 0 then break end
 				if t[1].Health > 0 and t[2].Parent then
 					local pos = t[2].Position - t[2].CFrame.LookVector * 2.2
 					root.CFrame = CFrame.lookAt(pos, t[2].Position)
 					root.AssemblyLinearVelocity = Vector3.zero
-					if firetouchinterest and handle then
-						pcall(firetouchinterest, t[2], handle, 0)
-						pcall(firetouchinterest, t[2], handle, 1)
-					end
+					touch(knife, t[2])
 					pcall(function() knife:Activate() end)
 					task.wait(step)
 				end
@@ -2242,6 +2452,65 @@ do
 			busy = false
 			toast("Kill All finished")
 		end)
+	end)
+
+	local ktOn, ktKey, ktPct, ktHold, ktHolding = false, Enum.KeyCode.Q, 100, false, false
+	local throwBtn = mkFloat("THROW", 50)
+	local _, ktRow = addToggle(murdererTab, "Knife Throw Aimbot", false, function(v)
+		ktOn = v
+		throwBtn.Visible = v
+	end)
+	local ktBox = addGroup(murdererTab, ktRow)
+	addKeybindRow(ktBox, "Aim Key (hold)", "Q", function(k) ktKey = k end)
+	addSlider(ktBox, "Prediction (%)", 0, 200, 100, function(v) ktPct = v end, true)
+	addToggle(ktBox, "Aim While Knife Equipped", false, function(v) ktHold = v end)
+
+	local function nearest()
+		local char = lp.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then return nil end
+		local best, bestDist, bestChar = nil, math.huge, nil
+		for _, p in ipairs(Players:GetPlayers()) do
+			local c = p ~= lp and p.Character
+			local th = c and c:FindFirstChildOfClass("Humanoid")
+			local head = c and c:FindFirstChild("Head")
+			local tr = c and c:FindFirstChild("HumanoidRootPart")
+			if th and head and tr and th.Health > 0 then
+				local d = (tr.Position - root.Position).Magnitude
+				if d < bestDist then best, bestDist, bestChar = head, d, c end
+			end
+		end
+		return best, bestChar
+	end
+
+	local function holdFor(sec)
+		ktHolding = true
+		task.delay(sec, function() ktHolding = false end)
+	end
+
+	UIS.InputBegan:Connect(function(i, gp)
+		if not ktOn then return end
+		if (i.UserInputType == Enum.UserInputType.Keyboard and i.KeyCode == ktKey and not gp)
+		or i.UserInputType == Enum.UserInputType.MouseButton2 then
+			holdFor(0.6)
+		end
+	end)
+	throwBtn.MouseButton1Down:Connect(function() holdFor(0.8) end)
+
+	RunService.RenderStepped:Connect(function()
+		if not ktOn then return end
+		local char = lp.Character
+		local equipped = false
+		if char then
+			for _, c in ipairs(char:GetChildren()) do
+				if c:IsA("Tool") and c.Name:lower():find("knife", 1, true) then equipped = true; break end
+			end
+		end
+		if not equipped then return end
+		if ktHolding or ktHold or UIS:IsKeyDown(ktKey) then
+			local head, tchar = nearest()
+			if head then U.aim.aimAt(U.aim.predict(head, tchar, ktPct)) end
+		end
 	end)
 end
 
@@ -2742,6 +3011,448 @@ do
 		task.wait(0.6)
 		build()
 	end)
+end
+
+do
+	local on, alpha = false, 0.6
+	local touched = setmetatable({}, { __mode = "k" })
+	local conn = nil
+
+	local function isCharPart(inst)
+		local m = inst:FindFirstAncestorOfClass("Model")
+		return m ~= nil and Players:GetPlayerFromCharacter(m) ~= nil
+	end
+
+	local function apply(d)
+		if d:IsA("BasePart") and not isCharPart(d) then
+			touched[d] = true
+			d.LocalTransparencyModifier = alpha
+		end
+	end
+
+	local function setX(v)
+		on = v
+		if conn then conn:Disconnect(); conn = nil end
+		if v then
+			conn = workspace.DescendantAdded:Connect(function(d)
+				if on then apply(d) end
+			end)
+			task.spawn(function()
+				local n = 0
+				for _, d in ipairs(workspace:GetDescendants()) do
+					if not on then break end
+					apply(d)
+					n = n + 1
+					if n % 400 == 0 then task.wait() end
+				end
+			end)
+		else
+			for part in pairs(touched) do
+				pcall(function() part.LocalTransparencyModifier = 0 end)
+			end
+			touched = setmetatable({}, { __mode = "k" })
+		end
+	end
+
+	local _, xrRow = addToggle(visTab, "X-Ray", false, setX)
+	local xrBox = addGroup(visTab, xrRow)
+	addSlider(xrBox, "X-Ray Transparency", 10, 90, 60, function(v)
+		alpha = v / 100
+		if on then
+			for part in pairs(touched) do
+				pcall(function() part.LocalTransparencyModifier = alpha end)
+			end
+		end
+	end, true)
+end
+
+do
+	local conn = nil
+	local changed = setmetatable({}, { __mode = "k" })
+	addToggle(visTab, "Noclip", false, function(v)
+		if conn then conn:Disconnect(); conn = nil end
+		if v then
+			conn = RunService.Stepped:Connect(function()
+				local char = lp.Character
+				if not char then return end
+				for _, p in ipairs(char:GetDescendants()) do
+					if p:IsA("BasePart") and p.CanCollide then
+						changed[p] = true
+						p.CanCollide = false
+					end
+				end
+			end)
+		else
+			for p in pairs(changed) do
+				pcall(function() p.CanCollide = true end)
+			end
+			changed = setmetatable({}, { __mode = "k" })
+		end
+	end)
+end
+
+do
+	local savedZoom = nil
+	addToggle(visTab, "Noclip Camera", false, function(v)
+		pcall(function()
+			if v then
+				savedZoom = savedZoom or lp.CameraMaxZoomDistance
+				lp.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
+				lp.CameraMaxZoomDistance = 600
+			else
+				lp.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Zoom
+				if savedZoom then lp.CameraMaxZoomDistance = savedZoom end
+			end
+		end)
+	end)
+end
+
+do
+	local on = false
+	UIS.JumpRequest:Connect(function()
+		if not on then return end
+		local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+		if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+	end)
+	addToggle(visTab, "Infinite Jump", false, function(v) on = v end)
+end
+
+do
+	local on = false
+	RunService.Stepped:Connect(function()
+		if not on then return end
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= lp and p.Character then
+				for _, part in ipairs(p.Character:GetDescendants()) do
+					if part:IsA("BasePart") and part.CanCollide then part.CanCollide = false end
+				end
+			end
+		end
+		local root = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+		if root then
+			local lv = root.AssemblyLinearVelocity
+			if Vector3.new(lv.X, 0, lv.Z).Magnitude > 300 or math.abs(lv.Y) > 300 then
+				root.AssemblyLinearVelocity = Vector3.zero
+			end
+			if root.AssemblyAngularVelocity.Magnitude > 50 then
+				root.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end)
+	addToggle(visTab, "Anti Fling", false, function(v) on = v end)
+end
+
+do
+	local speed = 50
+	local conn, bv, bg = nil, nil, nil
+	local controls = nil
+	task.spawn(function()
+		pcall(function()
+			controls = require(lp:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule")):GetControls()
+		end)
+	end)
+
+	local function stop()
+		if conn then conn:Disconnect(); conn = nil end
+		if bv then bv:Destroy(); bv = nil end
+		if bg then bg:Destroy(); bg = nil end
+		local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum.PlatformStand = false
+			hum.AutoRotate = true
+		end
+	end
+
+	local function start()
+		stop()
+		conn = RunService.RenderStepped:Connect(function()
+			local char = lp.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if not hum or not root or hum.Health <= 0 then return end
+			if not bv or bv.Parent ~= root then
+				if bv then bv:Destroy() end
+				if bg then bg:Destroy() end
+				bv = Instance.new("BodyVelocity")
+				bv.MaxForce = Vector3.new(1e9, 1e9, 1e9); bv.Velocity = Vector3.zero; bv.Parent = root
+				bg = Instance.new("BodyGyro")
+				bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9); bg.P = 20000; bg.D = 500; bg.Parent = root
+			end
+			hum.PlatformStand = true
+			local mv = controls and controls:GetMoveVector() or Vector3.zero
+			local dir = cam.CFrame.LookVector * (-mv.Z) + cam.CFrame.RightVector * mv.X
+			if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+			if UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
+				dir = dir - Vector3.new(0, 1, 0)
+			end
+			bv.Velocity = dir.Magnitude > 0 and dir.Unit * speed or Vector3.zero
+			local look = cam.CFrame.LookVector
+			bg.CFrame = CFrame.lookAt(root.Position, root.Position + Vector3.new(look.X, 0, look.Z))
+		end)
+	end
+
+	local _, flyRow = addToggle(visTab, "Fly", false, function(v)
+		if v then start() else stop() end
+	end)
+	local flyBox = addGroup(visTab, flyRow)
+	addSlider(flyBox, "Fly Speed", 10, 300, 50, function(v) speed = v end, true)
+end
+
+do
+	local styles = { "Default", "Dot", "Crosshair", "Circle", "Plus", "Square", "X" }
+	local current = "Default"
+	local cur = Instance.new("Frame", gui)
+	cur.AnchorPoint = Vector2.new(0.5, 0.5); cur.Size = UDim2.fromOffset(24, 24)
+	cur.BackgroundTransparency = 1; cur.Visible = false; cur.ZIndex = 1000
+
+	local function bar(w, h, x, y, rot)
+		local f = Instance.new("Frame", cur)
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Size = UDim2.fromOffset(w, h); f.Position = UDim2.new(0.5, x, 0.5, y)
+		f.BackgroundColor3 = ACCENT; f.BorderSizePixel = 0; f.ZIndex = 1000
+		f.Rotation = rot or 0
+		mkStroke(f, Color3.new(0, 0, 0), 0.2, 1)
+		return f
+	end
+
+	local function build(name)
+		for _, c in ipairs(cur:GetChildren()) do c:Destroy() end
+		if name == "Dot" then
+			local f = bar(6, 6, 0, 0); corner(f, 3)
+		elseif name == "Crosshair" then
+			bar(2, 7, 0, -8); bar(2, 7, 0, 8); bar(7, 2, -8, 0); bar(7, 2, 8, 0)
+		elseif name == "Circle" then
+			local f = Instance.new("Frame", cur)
+			f.AnchorPoint = Vector2.new(0.5, 0.5); f.Size = UDim2.fromOffset(18, 18)
+			f.Position = UDim2.new(0.5, 0, 0.5, 0); f.BackgroundTransparency = 1; f.ZIndex = 1000
+			corner(f, 9); mkStroke(f, ACCENT, 0, 2)
+		elseif name == "Plus" then
+			bar(2, 16, 0, 0); bar(16, 2, 0, 0)
+		elseif name == "Square" then
+			local f = Instance.new("Frame", cur)
+			f.AnchorPoint = Vector2.new(0.5, 0.5); f.Size = UDim2.fromOffset(14, 14)
+			f.Position = UDim2.new(0.5, 0, 0.5, 0); f.BackgroundTransparency = 1; f.ZIndex = 1000
+			mkStroke(f, ACCENT, 0, 2)
+		elseif name == "X" then
+			bar(2, 18, 0, 0, 45); bar(2, 18, 0, 0, -45)
+		end
+	end
+
+	RunService.RenderStepped:Connect(function()
+		if current == "Default" then
+			if cur.Visible then cur.Visible = false end
+			return
+		end
+		if UIS.TouchEnabled and not UIS.MouseEnabled then return end
+		UIS.MouseIconEnabled = false
+		local loc = UIS:GetMouseLocation()
+		cur.Position = UDim2.fromOffset(loc.X, loc.Y)
+		cur.Visible = true
+	end)
+
+	addSelector(visTab, "Cursor", styles, function(name)
+		current = name
+		if name == "Default" then
+			UIS.MouseIconEnabled = true
+		else
+			build(name)
+		end
+	end)
+end
+
+do
+	local order = { "Default", "Merriweather", "Builder", "Nunito", "Ubuntu", "Fredoka", "Roboto", "Oswald", "Cartoon", "Arcade", "Sci-Fi", "Code", "Bangers" }
+	local enumNames = {
+		Merriweather = "Merriweather", Builder = "BuilderSansBold", Nunito = "Nunito", Ubuntu = "Ubuntu",
+		Fredoka = "FredokaOne", Roboto = "Roboto", Oswald = "Oswald", Cartoon = "Cartoon",
+		Arcade = "Arcade", ["Sci-Fi"] = "SciFi", Code = "Code", Bangers = "Bangers",
+	}
+	local originals = setmetatable({}, { __mode = "k" })
+	local current = "Default"
+
+	local function target()
+		local en = enumNames[current]
+		if not en then return nil end
+		local ok, f = pcall(function() return Enum.Font[en] end)
+		return ok and f or nil
+	end
+
+	local function applyObj(o)
+		if not (o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox")) then return end
+		if originals[o] == nil then originals[o] = o.Font end
+		pcall(function() o.Font = target() or originals[o] end)
+	end
+
+	gui.DescendantAdded:Connect(function(d)
+		if current ~= "Default" then task.defer(applyObj, d) end
+	end)
+
+	addSelector(visTab, "Font", order, function(name)
+		current = name
+		for _, d in ipairs(gui:GetDescendants()) do applyObj(d) end
+	end)
+end
+
+do
+	local SKIES = {
+		Cyber = {
+			sky = "rbxassetid://9994573642", future = true,
+			n = { bri = 3, exp = 0.05, amb = { 0, 20, 40 }, out = { 10, 30, 60 }, bloom = { 0.35, 36, 0.8 }, cc = { 0.05, 0.15, 0.2, { 0, 150, 255 } }, atm = { 0.25, 0.1, { 0, 100, 200 }, { 0, 40, 100 }, 0.3, 0.8 } },
+			d = { bri = 1.5, exp = -0.15, amb = { 30, 30, 50 }, out = { 40, 40, 70 }, bloom = { 0.15, 30, 0.9 }, cc = { -0.08, 0.05, 0.1, { 0, 100, 200 } }, atm = { 0.4, 0.15, { 0, 80, 160 }, { 0, 30, 80 }, 0.1, 0.5 } },
+		},
+		Sakura = {
+			sky = "rbxassetid://10174567842", future = true,
+			n = { bri = 4, exp = 0.08, amb = { 60, 40, 70 }, out = { 80, 50, 100 }, bloom = { 0.5, 42, 0.7 }, cc = { 0.03, 0.1, 0.25, { 255, 150, 200 } }, atm = { 0.3, 0.1, { 255, 160, 210 }, { 140, 60, 100 }, 0.5, 1 } },
+			d = { bri = 2, exp = -0.1, amb = { 80, 60, 100 }, out = { 100, 70, 130 }, bloom = { 0.25, 35, 0.85 }, cc = { -0.05, 0.05, 0.15, { 200, 100, 150 } }, atm = { 0.4, 0.15, { 200, 120, 170 }, { 100, 40, 80 }, 0.2, 0.6 } },
+		},
+		Moonlight = {
+			sky = "rbxassetid://9994573642", future = true, stars = 5000, moon = 22, moonTex = true,
+			n = { bri = 2.2, exp = 0, amb = { 120, 60, 110 }, out = { 140, 70, 120 }, bloom = { 0.4, 38, 0.75 }, cc = { 0.02, 0.1, 0.2, { 255, 120, 200 } }, atm = { 0.35, 0.1, { 255, 80, 180 }, { 140, 30, 100 }, 0.5, 1.2 } },
+			d = { bri = 2.8, exp = 0, amb = { 180, 130, 160 }, out = { 200, 150, 180 }, bloom = { 0.2, 32, 0.85 }, cc = { -0.03, 0.05, 0.1, { 200, 100, 160 } }, atm = { 0.4, 0.15, { 220, 120, 200 }, { 160, 60, 130 }, 0.2, 0.8 } },
+		},
+		Heaven = {
+			sky = "rbxassetid://9994573642", future = true, stars = 0, sun = 18, clock = 12,
+			clouds = { 0.9, 0.4, { 255, 255, 255 } },
+			n = { bri = 4.5, exp = -0.02, amb = { 250, 245, 230 }, out = { 255, 250, 240 }, bloom = { 0.6, 45, 0.85 }, cc = { 0.02, 0.05, 0.1, { 255, 252, 235 } }, atm = { 0.2, 0.05, { 255, 252, 235 }, { 255, 245, 215 }, 3.5, 1.2 } },
+		},
+		["Lavender Dream"] = {
+			sky = "rbxassetid://9994573642", future = true, stars = 800, moon = 16, moonTex = true, clock = 18.5,
+			clouds = { 0.6, 0.5, { 220, 200, 255 } },
+			n = { bri = 2.6, exp = 0.02, amb = { 180, 160, 220 }, out = { 190, 170, 230 }, bloom = { 0.4, 40, 0.8 }, cc = { 0.02, 0.05, 0.15, { 200, 160, 255 } }, atm = { 0.3, 0.1, { 200, 160, 255 }, { 160, 120, 220 }, 1.5, 1.2 } },
+		},
+		Night = {
+			stars = 4000, moon = 18, sun = 0, moonTex = true, clock = 22,
+			n = { bri = 2, amb = { 110, 100, 130 }, out = { 120, 110, 140 }, atm = { 0.45, 0, { 120, 60, 180 }, { 60, 20, 100 }, 0.5, 1.2 } },
+		},
+		Sunset = {
+			stars = 0, sun = 25, moon = 0, clock = 17.2,
+			clouds = { 0.55, 0.55, { 255, 200, 140 } },
+			n = { bri = 2.5, amb = { 170, 120, 100 }, out = { 180, 130, 110 }, atm = { 0.5, 0, { 255, 130, 60 }, { 255, 80, 30 }, 2, 2.5 } },
+		},
+		Tech = {
+			stars = 2000, moon = 12, clock = 21,
+			clouds = { 0.4, 0.6, { 100, 200, 255 } },
+			n = { bri = 2.2, amb = { 90, 130, 170 }, out = { 100, 140, 180 }, atm = { 0.4, 0, { 0, 200, 255 }, { 150, 0, 255 }, 2, 2 } },
+		},
+		Pink = {
+			stars = 5000, moon = 22, sun = 0, moonTex = true, clock = 23,
+			clouds = { 0.3, 0.5, { 180, 90, 150 } },
+			n = { bri = 2.2, amb = { 120, 60, 110 }, out = { 140, 70, 120 }, atm = { 0.5, 0, { 255, 80, 180 }, { 140, 30, 100 }, 0.7, 1.4 } },
+		},
+	}
+	local names = { "Off", "Cyber", "Sakura", "Moonlight", "Heaven", "Lavender Dream", "Night", "Sunset", "Tech", "Pink" }
+
+	local function c3(t) return Color3.fromRGB(t[1], t[2], t[3]) end
+	local saved, stash = nil, {}
+
+	local function clearCustom()
+		for _, c in ipairs(Lighting:GetChildren()) do
+			if c.Name:sub(1, 5) == "VSky_" then c:Destroy() end
+		end
+		local terrain = workspace:FindFirstChildOfClass("Terrain")
+		if terrain then
+			local cl = terrain:FindFirstChild("VSky_Clouds")
+			if cl then cl:Destroy() end
+		end
+	end
+
+	local function restore()
+		clearCustom()
+		for _, inst in ipairs(stash) do
+			pcall(function() inst.Parent = Lighting end)
+		end
+		stash = {}
+		local terrain = workspace:FindFirstChildOfClass("Terrain")
+		if terrain then
+			for _, c in ipairs(terrain:GetChildren()) do
+				if c:IsA("Clouds") then pcall(function() c.Enabled = true end) end
+			end
+		end
+		if saved then
+			pcall(function()
+				Lighting.Technology = saved.tech
+				Lighting.Brightness = saved.bri
+				Lighting.ClockTime = saved.clock
+				Lighting.ExposureCompensation = saved.exp
+				Lighting.Ambient = saved.amb
+				Lighting.OutdoorAmbient = saved.out
+			end)
+		end
+	end
+
+	local function apply(name)
+		local spec = SKIES[name]
+		if not spec then restore(); return end
+		clearCustom()
+		if not saved then
+			saved = {
+				tech = Lighting.Technology, bri = Lighting.Brightness, clock = Lighting.ClockTime,
+				exp = Lighting.ExposureCompensation, amb = Lighting.Ambient, out = Lighting.OutdoorAmbient,
+			}
+		end
+		for _, c in ipairs(Lighting:GetChildren()) do
+			if (c:IsA("Sky") or c:IsA("Atmosphere")) and c.Name:sub(1, 5) ~= "VSky_" then
+				stash[#stash + 1] = c
+				c.Parent = nil
+			end
+		end
+		local terrain = workspace:FindFirstChildOfClass("Terrain")
+		if terrain then
+			for _, c in ipairs(terrain:GetChildren()) do
+				if c:IsA("Clouds") and c.Name ~= "VSky_Clouds" then c.Enabled = false end
+			end
+		end
+		if spec.clock then Lighting.ClockTime = spec.clock end
+		local night = Lighting.ClockTime < 6 or Lighting.ClockTime > 18
+		local v = (night and spec.n) or spec.d or spec.n
+		if spec.future then pcall(function() Lighting.Technology = Enum.Technology.Future end) end
+		Lighting.Brightness = v.bri
+		Lighting.ExposureCompensation = v.exp or 0
+		Lighting.Ambient = c3(v.amb)
+		Lighting.OutdoorAmbient = c3(v.out)
+
+		local sky = Instance.new("Sky")
+		sky.Name = "VSky_Sky"
+		if spec.sky then
+			sky.SkyboxBk = spec.sky; sky.SkyboxDn = spec.sky; sky.SkyboxFt = spec.sky
+			sky.SkyboxLf = spec.sky; sky.SkyboxRt = spec.sky; sky.SkyboxUp = spec.sky
+		end
+		if spec.stars then sky.StarCount = spec.stars end
+		if spec.moon then sky.MoonAngularSize = spec.moon end
+		if spec.sun then sky.SunAngularSize = spec.sun end
+		if spec.moonTex then sky.MoonTextureId = "rbxasset://sky/moon.jpg" end
+		sky.Parent = Lighting
+
+		if v.bloom then
+			local b = Instance.new("BloomEffect")
+			b.Name = "VSky_Bloom"
+			b.Intensity = v.bloom[1]; b.Size = v.bloom[2]; b.Threshold = v.bloom[3]
+			b.Parent = Lighting
+		end
+		if v.cc then
+			local cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "VSky_CC"
+			cc.Brightness = v.cc[1]; cc.Contrast = v.cc[2]; cc.Saturation = v.cc[3]
+			cc.TintColor = c3(v.cc[4])
+			cc.Parent = Lighting
+		end
+		if v.atm then
+			local a = Instance.new("Atmosphere")
+			a.Name = "VSky_Atmo"
+			a.Density = v.atm[1]; a.Offset = v.atm[2]
+			a.Color = c3(v.atm[3]); a.Decay = c3(v.atm[4])
+			a.Glare = v.atm[5]; a.Haze = v.atm[6]
+			a.Parent = Lighting
+		end
+		if spec.clouds and terrain then
+			local cl = Instance.new("Clouds")
+			cl.Name = "VSky_Clouds"
+			cl.Cover = spec.clouds[1]; cl.Density = spec.clouds[2]; cl.Color = c3(spec.clouds[3])
+			cl.Parent = terrain
+		end
+	end
+
+	addSelector(visTab, "Sky Theme 2", names, function(name) pcall(apply, name) end)
 end
 
 local miscTab = newTab("Misc")
