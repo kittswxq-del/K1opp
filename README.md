@@ -416,6 +416,11 @@ local function newTab(name)
 	page.ScrollBarImageColor3 = ACCENT; page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	page.CanvasSize = UDim2.new(); page.Visible = false; page.ZIndex = 4
 	local layout = Instance.new("UIListLayout", page); layout.Padding = UDim.new(0, 6)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	local counter = 0
+	page.ChildAdded:Connect(function(c)
+		if c:IsA("GuiObject") then counter = counter + 1; c.LayoutOrder = counter end
+	end)
 	tabs[name] = page; tabButtons[name] = b
 	b.MouseButton1Click:Connect(function() selectTab(name) end)
 	return page
@@ -473,6 +478,11 @@ local function addGroup(page, row, arrowX)
 	box.Size = UDim2.new(1,-6,0,0); box.AutomaticSize = Enum.AutomaticSize.Y
 	box.BackgroundTransparency = 1; box.BorderSizePixel = 0; box.Visible = false; box.ZIndex = 5
 	local layout = Instance.new("UIListLayout", box); layout.Padding = UDim.new(0,6)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	local counter = 0
+	box.ChildAdded:Connect(function(c)
+		if c:IsA("GuiObject") then counter = counter + 1; c.LayoutOrder = counter end
+	end)
 	local pad = Instance.new("UIPadding", box); pad.PaddingLeft = UDim.new(0,14)
 	local arrow = Instance.new("TextButton", row)
 	arrow.Size = UDim2.new(0,26,0,24); arrow.Position = UDim2.new(1, arrowX or -84, 0.5, -12)
@@ -1999,30 +2009,69 @@ end
 
 do
 	local SOUNDS = {
-		{ "Sound 1", "91974992998097" },
-		{ "Sound 2", "84501524914411" },
-		{ "Sound 3", "137872121375273" },
-		{ "Sound 4", "120295278050351" },
+		{ "Sound 1", "https://www.image2url.com/r2/default/audio/1794890416204-b08db81c-0beb-4e35-9069-705a9a235032.mp3" },
+		{ "Sound 2", "https://www.image2url.com/r2/default/audio/1794890479019-35b7f533-d69b-48c2-b647-4dcb4bf71a31.mp3" },
+		{ "Sound 3", "https://www.image2url.com/r2/default/audio/1794890492073-4def5f3e-ee08-4cf0-9b3a-43309158617d.mp3" },
+		{ "Sound 4", "https://www.image2url.com/r2/default/audio/1794890509473-c4616392-22ef-40d4-942b-c57ef9c57e41.mp3" },
 	}
-	local BUILTIN = #SOUNDS
+	local function nameFor(src, idx)
+		if src:match("^https?://") then return "Link " .. idx end
+		return string.sub(src, 1, 22)
+	end
 	local custom = Persist.get("killsound.custom")
 	if type(custom) ~= "table" then custom = {} end
-	for _, s in ipairs(custom) do
-		SOUNDS[#SOUNDS + 1] = { string.sub(s, 1, 22), s }
+	for _, c in ipairs(custom) do
+		SOUNDS[#SOUNDS + 1] = { nameFor(c, #SOUNDS + 1), c }
 	end
 
 	local state = { on = false, sel = 1, volume = 1.5 }
 	local savedSel = Persist.get("killsound.sel")
 	if type(savedSel) == "number" and SOUNDS[savedSel] then state.sel = savedSel end
 
+	local function httpGet(url)
+		local ok, res = pcall(function() return game:HttpGet(url) end)
+		if ok and type(res) == "string" and res ~= "" then return res end
+		local req = (syn and syn.request) or request or http_request or (http and http.request)
+		if req then
+			local ok2, r = pcall(function() return req({ Url = url, Method = "GET" }) end)
+			if ok2 and r and r.Body and r.Body ~= "" then return r.Body end
+		end
+		return nil
+	end
+
+	local downloading = {}
+
+	local function localFile(url)
+		if not (writefile and isfile and getcustomasset) then
+			return nil, "executor has no writefile/getcustomasset"
+		end
+		local tail = url:gsub("[?#].*$", ""):match("[^/]+$") or "sound"
+		tail = tail:gsub("[^%w%._%-]", "_")
+		if not tail:lower():match("%.(%a%a%a)$") then tail = tail .. ".mp3" end
+		local name = "VisionKS_" .. tail
+		while downloading[name] do task.wait(0.1) end
+		if not isfile(name) then
+			downloading[name] = true
+			toast("Downloading sound...")
+			local body = httpGet(url)
+			if body then pcall(writefile, name, body) end
+			downloading[name] = nil
+			if not body then return nil, "download failed" end
+		end
+		local ok, res = pcall(getcustomasset, name)
+		if ok and res then return res end
+		return nil, "getcustomasset failed"
+	end
+
 	local function resolve(src)
 		if src:match("^%d+$") then return "rbxassetid://" .. src end
-		if src:find("rbxassetid", 1, true) or src:find("http", 1, true) then return src end
+		if src:match("^https?://") then return localFile(src) end
+		if src:find("rbxassetid", 1, true) then return src end
 		if isfile and getcustomasset and isfile(src) then
 			local ok, res = pcall(getcustomasset, src)
 			if ok then return res end
 		end
-		return nil
+		return nil, "file not found"
 	end
 
 	local SoundSvc = game:GetService("SoundService")
@@ -2030,28 +2079,28 @@ do
 	local cache = {}
 
 	local function getSound(src)
-		local id = resolve(src)
-		if not id then return nil end
-		local snd = cache[id]
+		local snd = cache[src]
 		if snd and snd.Parent then return snd end
+		local id, err = resolve(src)
+		if not id then return nil, err end
 		snd = Instance.new("Sound")
 		snd.Name = "VisionKillSound"
 		snd.SoundId = id
 		snd.Looped = false
 		snd.Parent = SoundSvc
-		cache[id] = snd
-		task.spawn(function() pcall(function() ContentProv:PreloadAsync({ snd }) end) end)
+		cache[src] = snd
+		pcall(function() ContentProv:PreloadAsync({ snd }) end)
 		return snd
 	end
 
 	local function play(src)
-		local snd = getSound(src)
-		if not snd then toast("Sound not found: " .. src); return end
-		snd.Volume = math.clamp(state.volume, 0, 10)
 		task.spawn(function()
+			local snd, err = getSound(src)
+			if not snd then toast("Sound error: " .. tostring(err)); return end
+			snd.Volume = math.clamp(state.volume, 0, 10)
 			local t0 = os.clock()
 			while not snd.IsLoaded and os.clock() - t0 < 6 do task.wait(0.05) end
-			if not snd.IsLoaded then toast("Sound failed to load (private or blocked audio)"); return end
+			if not snd.IsLoaded then toast("Sound failed to load"); return end
 			snd.TimePosition = 0
 			snd:Play()
 		end)
@@ -2079,6 +2128,7 @@ do
 	list.AutomaticCanvasSize = Enum.AutomaticSize.Y; list.CanvasSize = UDim2.new()
 	list.ZIndex = 11
 	local ll = Instance.new("UIListLayout", list); ll.Padding = UDim.new(0, 6)
+	ll.SortOrder = Enum.SortOrder.LayoutOrder
 
 	local navRow, navLabel
 
@@ -2088,6 +2138,7 @@ do
 		end
 		for i, snd in ipairs(SOUNDS) do
 			local row = Instance.new("Frame", list)
+			row.LayoutOrder = i
 			row.Size = UDim2.new(1,-6,0,34); row.BackgroundColor3 = Color3.fromRGB(30,31,44)
 			row.ZIndex = 12; corner(row, 8)
 			mkStroke(row, ACCENT, state.sel == i and 0 or 0.8, state.sel == i and 2 or 1)
@@ -2120,7 +2171,7 @@ do
 	local box = Instance.new("TextBox", popup)
 	box.Size = UDim2.new(1,-96,0,30); box.Position = UDim2.new(0,8,1,-38)
 	box.BackgroundColor3 = Color3.fromRGB(40,41,58); box.Text = ""
-	box.PlaceholderText = "Asset ID or file name"; box.TextColor3 = ACCENT
+	box.PlaceholderText = "Audio link, asset ID or file name"; box.TextColor3 = ACCENT
 	box.PlaceholderColor3 = Color3.fromRGB(130,130,150)
 	box.Font = Enum.Font.GothamBold; box.TextSize = 12
 	box.ClearTextOnFocus = false; box.ZIndex = 12; corner(box, 6); mkStroke(box, ACCENT, 0.6)
@@ -2132,14 +2183,22 @@ do
 	add.MouseButton1Click:Connect(function()
 		local text = box.Text:gsub("^%s+", ""):gsub("%s+$", "")
 		if text == "" then return end
-		local id = text:match("^%d+$") or text:match("rbxassetid://(%d+)") or text:match("/library/(%d+)") or text:match("/catalog/(%d+)")
-		local src = id or text
-		if not resolve(src) then toast("Not an ID and no such file: " .. text); return end
-		SOUNDS[#SOUNDS + 1] = { string.sub(src, 1, 22), src }
-		custom[#custom + 1] = src
-		Persist.set("killsound.custom", custom)
-		box.Text = ""
-		refresh()
+		local src
+		if text:match("^https?://") then
+			src = text
+		else
+			src = text:match("^%d+$") or text:match("rbxassetid://(%d+)") or text:match("/library/(%d+)") or text:match("/catalog/(%d+)") or text
+		end
+		task.spawn(function()
+			local snd, err = getSound(src)
+			if not snd then toast("Can't add: " .. tostring(err)); return end
+			SOUNDS[#SOUNDS + 1] = { nameFor(src, #SOUNDS + 1), src }
+			custom[#custom + 1] = src
+			Persist.set("killsound.custom", custom)
+			box.Text = ""
+			refresh()
+			toast("Sound added")
+		end)
 	end)
 
 	refresh()
@@ -2221,52 +2280,119 @@ do
 		local target = res and res.Position or (ray.Origin + ray.Direction * 1000)
 		local dist = (target - origin).Magnitude
 		if dist < 0.5 then return end
-		local line = Instance.new("Part")
-		line.Anchored = true; line.CanCollide = false; line.CanTouch = false; line.CanQuery = false
-		line.Material = Enum.Material.Neon; line.Color = Color3.new(1, 1, 1)
-		line.Size = Vector3.new(0.14, 0.14, dist)
-		line.CFrame = CFrame.lookAt(origin, target) * CFrame.new(0, 0, -dist / 2)
-		line.Parent = workspace
-		task.delay(0.9, function()
-			if line.Parent then
-				TweenSvc:Create(line, TweenInfo.new(0.3), { Transparency = 1 }):Play()
+		local cf = CFrame.lookAt(origin, target) * CFrame.new(0, 0, -dist / 2)
+		local parts = {}
+		local function layer(thick, color, tr)
+			local pt = Instance.new("Part")
+			pt.Anchored = true; pt.CanCollide = false; pt.CanTouch = false; pt.CanQuery = false
+			pt.CastShadow = false
+			pt.Material = Enum.Material.Neon; pt.Color = color
+			pt.Transparency = tr
+			pt.Size = Vector3.new(thick, thick, dist)
+			pt.CFrame = cf
+			pt.Parent = workspace
+			parts[#parts + 1] = { pt, thick, tr }
+		end
+		layer(0.42, Color3.new(1, 1, 1), 0)
+		layer(1.1, ACCENT, 0.62)
+		layer(2.0, ACCENT, 0.84)
+		task.delay(0.8, function()
+			for _, d in ipairs(parts) do
+				if d[1].Parent then
+					TweenSvc:Create(d[1], TweenInfo.new(0.4), {
+						Transparency = 1,
+						Size = Vector3.new(d[2] * 1.5, d[2] * 1.5, dist),
+					}):Play()
+				end
 			end
 		end)
-		task.delay(1.2, function() line:Destroy() end)
+		task.delay(1.2, function()
+			for _, d in ipairs(parts) do d[1]:Destroy() end
+		end)
 	end
 end
 
 do
-	local SIZES = { Small = { 0.9, 0.55 }, Medium = { 1.3, 0.8 }, Large = { 1.8, 1.1 } }
-	local names = { "Small", "Medium", "Large" }
-	local on, sizeName = false, "Medium"
-	local cone = nil
+	local HAT_ID = 105545517700837
+	local on, sizePct, height, forward = false, 100, 0, 0
+	local template, hat, base, gen = nil, nil, nil, 0
+
+	local function loadTemplate()
+		if template then return template end
+		local obj
+		local ok, res = pcall(function() return game:GetObjects("rbxassetid://" .. HAT_ID) end)
+		if ok and res and res[1] then obj = res[1] end
+		if not obj then
+			local ok2, model = pcall(function() return InsertService:LoadAsset(HAT_ID) end)
+			if ok2 and model then obj = model end
+		end
+		if not obj then return nil end
+		template = obj:IsA("Accessory") and obj or obj:FindFirstChildWhichIsA("Accessory", true)
+		return template
+	end
 
 	local function destroy()
-		if cone then cone:Destroy(); cone = nil end
-	end
-	local function build()
-		destroy()
-		if not on then return end
-		local head = lp.Character and lp.Character:FindFirstChild("Head")
-		if not head then return end
-		local s = SIZES[sizeName]
-		cone = Instance.new("ConeHandleAdornment")
-		cone.Adornee = head
-		cone.Radius = s[1]
-		cone.Height = s[2]
-		cone.CFrame = CFrame.new(0, head.Size.Y / 2 + 0.05, 0) * CFrame.Angles(-math.pi / 2, 0, 0)
-		cone.Color3 = Color3.fromRGB(255, 225, 150)
-		cone.Transparency = 0
-		cone.ZIndex = 1
-		cone.Parent = cam
+		if hat then pcall(function() hat:Destroy() end); hat = nil end
+		base = nil
 	end
 
-	local _, hatRow = addToggle(visTab, "China Hat", false, function(v) on = v; build() end)
+	local function scaled(acc, k)
+		local c = acc:Clone()
+		c.Name = "VisionSamuraiHat"
+		local h = c:FindFirstChild("Handle")
+		if h and k ~= 1 then
+			if h:IsA("MeshPart") then h.Size = h.Size * k end
+			for _, d in ipairs(h:GetDescendants()) do
+				if d:IsA("SpecialMesh") then d.Scale = d.Scale * k
+				elseif d:IsA("Attachment") then d.Position = d.Position * k end
+			end
+		end
+		return c
+	end
+
+	local function applyOffset()
+		local h = hat and hat:FindFirstChild("Handle")
+		if not h then return end
+		local w
+		for _, d in ipairs(h:GetChildren()) do
+			if d:IsA("JointInstance") then w = d; break end
+		end
+		if not w then return end
+		if not base then base = { c0 = w.C0, c1 = w.C1 } end
+		local t = CFrame.new(0, height, -forward)
+		if w.Part0 ~= h then w.C0 = t * base.c0 else w.C1 = t * base.c1 end
+	end
+
+	local function build()
+		gen = gen + 1
+		local my = gen
+		destroy()
+		if not on then return end
+		task.spawn(function()
+			local acc = loadTemplate()
+			if my ~= gen then return end
+			if not acc then toast("Samurai Hat failed to load"); return end
+			local char = lp.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if not hum then return end
+			local c = scaled(acc, sizePct / 100)
+			local ok = AccAPI.attach(c, hum, char)
+			if my ~= gen then pcall(function() c:Destroy() end); return end
+			if not ok then pcall(function() c:Destroy() end); toast("Samurai Hat failed to equip"); return end
+			hat = c
+			applyOffset()
+		end)
+	end
+
+	local _, hatRow = addToggle(visTab, "Samurai Hat", false, function(v) on = v; build() end)
 	local hatBox = addGroup(visTab, hatRow)
-	addSelector(hatBox, "China Hat Size", names, function(name) sizeName = name; build() end)
+	addSlider(hatBox, "Hat Height", -5, 5, 0, function(v) height = v; applyOffset() end)
+	addSlider(hatBox, "Hat Forward", -5, 5, 0, function(v) forward = v; applyOffset() end)
+	addSlider(hatBox, "Hat Size (%)", 20, 300, 100, function(v)
+		if v ~= sizePct then sizePct = v; build() end
+	end, true)
 	lp.CharacterAdded:Connect(function()
-		task.wait(0.6)
+		task.wait(1)
 		build()
 	end)
 end
